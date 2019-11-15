@@ -1,0 +1,3 @@
+(library
+   (name ada_ir)
+   (libraries libadalang))
