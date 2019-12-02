@@ -1,4 +1,4 @@
 (library
    (name translation)
    (preprocess (pps ppx_nolazy))
-   (libraries libadalang ada_ir))
+   (libraries core libadalang ada_ir))

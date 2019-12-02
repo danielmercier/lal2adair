@@ -1,6 +1,6 @@
 open Libadalang
 
-type t = {decl_node: [BaseTypeDecl.t | TypeExpr.t]}
+type t = [BaseTypeDecl.t | TypeExpr.t]
 
 and desc =
   | Discrete of discrete_typ
@@ -61,7 +61,5 @@ and constr =
   | Equal of static_expr
   | Alternatives of constr list
   | Not of constr
-
-val of_base_type_decl
 
 val desc : t -> desc

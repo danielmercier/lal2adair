@@ -1,1 +1,3 @@
-val translate_expr : [< Libadalang.Expr.t] -> Ada_ir.Expr.t
+open Libadalang
+
+val translate_expr : [< Expr.t] -> Ada_ir.Expr.t
