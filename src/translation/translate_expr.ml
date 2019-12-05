@@ -77,8 +77,10 @@ and translate_record_access (name : DottedName.t) =
               Ada_ir.Expr.pp prefix
       in
       (lhost, Field ({fieldname}, offset))
-  | _ ->
-      assert false
+  | suffix ->
+      (* For a record access, the only possible suffix is an identifier *)
+      Utils.lal_error "Expecting an identifier for field, found %a"
+        Utils.pp_node suffix
 
 and translate_contract_cases (_contract_cases : ContractCases.t) = assert false
 
@@ -328,11 +330,11 @@ and translate_call_expr (call_expr : CallExpr.t) : Ada_ir.Expr.expr_node =
           Utils.legality_error
             "Expect an AssocList with one element for a type cast, found %a"
             Utils.pp_node suffix )
-  | None -> (
+  | None ->
       (* Either an index access or a slice, in each case, we can translate
          the name as an expression *)
       let name_expr = translate_expr (name :> Expr.t) in
-      let lhost, offset =
+      let lval =
         match lval_from_expr name_expr with
         | Some lval ->
             lval
@@ -340,26 +342,101 @@ and translate_call_expr (call_expr : CallExpr.t) : Ada_ir.Expr.expr_node =
             Utils.legality_error "Cannot access an index of a non lvalue: %a"
               Ada_ir.Expr.pp name_expr
       in
-      if CallExpr.p_is_array_slice call_expr then assert false
-      else
-        (* Regular array access *)
-        match%nolazy CallExpr.f_suffix call_expr with
-        | `AssocList {list= assoc_list} ->
-            let translate_assoc =
-              function%nolazy
-              | `ParamAssoc {ParamAssoc.f_r_expr} ->
-                  translate_expr (f_r_expr :> Expr.t)
-              | assoc ->
-                  Utils.legality_error
-                    "Expect a ParamAssoc with for index expression, found %a"
-                    Utils.pp_node assoc
-            in
-            let index = List.map ~f:translate_assoc assoc_list in
-            Lval (lhost, Index (index, offset))
-        | suffix ->
+      let suffix = CallExpr.f_suffix call_expr in
+      if CallExpr.p_is_array_slice call_expr then
+        translate_array_slice lval suffix
+      else translate_array_index lval suffix
+
+and translate_array_index lval suffix =
+  (* Regular array access *)
+  match%nolazy suffix with
+  | `AssocList {list= assoc_list} ->
+      let lhost, offset = lval in
+      (* translate each index *)
+      let translate_assoc =
+        function%nolazy
+        | `ParamAssoc {ParamAssoc.f_r_expr} ->
+            translate_expr (f_r_expr :> Expr.t)
+        | assoc ->
             Utils.legality_error
-              "Expect an AssocList with one element for a type cast, found %a"
-              Utils.pp_node suffix )
+              "Expect a ParamAssoc with index expression, found %a"
+              Utils.pp_node assoc
+      in
+      let index = List.map ~f:translate_assoc assoc_list in
+      Lval (lhost, Index (index, offset))
+  | _ ->
+      Utils.legality_error
+        "Expect an AssocList with one element for a type cast, found %a"
+        Utils.pp_node suffix
+
+and translate_array_slice lval suffix =
+  (* Array slicing *)
+  match%nolazy suffix with
+  | `AssocList {list= [`ParamAssoc {f_r_expr}]} -> (
+    match (f_r_expr :> AdaNode.t) with
+    | #Lal_typ.range as range ->
+        Slice (lval, translate_range range)
+    | _ ->
+        Utils.legality_error "Expect an range for an array slice, found %a"
+          Utils.pp_node f_r_expr )
+  | #Lal_typ.range as range ->
+      (* All possibilities does not translate to an assoc list. For example,
+         a DiscreteSubtypeIndication is directly here instead of under an
+         assoc list *)
+      Slice (lval, translate_range range)
+  | _ ->
+      Utils.legality_error "Expect an range for an array slice, found %a"
+        Utils.pp_node suffix
+
+and translate_range (range : Lal_typ.range) : Ada_ir.Expr.range =
+  match%nolazy range with
+  | #Lal_typ.identifier as ident -> (
+    (* The only way to translate a range from an identifier, is if the
+       identifier refers to a type *)
+    match Name.p_name_designated_type ident with
+    | Some typ ->
+        TypeExpr (typ, None)
+    | None ->
+        Utils.legality_error "Expect a type for range %a" Utils.pp_node ident )
+  | `BinOp {f_left; f_op= `OpDoubleDot _; f_right} ->
+      (* DoubleDot here *)
+      DoubleDot
+        (translate_expr (f_left :> Expr.t), translate_expr (f_right :> Expr.t))
+  | #BinOp.t as binop ->
+      Utils.legality_error "Expect double dot operator for a range, got %a"
+        Utils.pp_node binop
+  | #DiscreteSubtypeIndication.t as type_expr -> (
+    (* Explicit discrete subtype indication. We translate the underlying type
+       expression and see if it's a range constraint *)
+    match translate_type_expr (type_expr :> TypeExpr.t) with
+    | typ, Some (RangeConstraint (left, right)) ->
+        TypeExpr (typ, Some (left, right))
+    | typ, None ->
+        TypeExpr (typ, None) )
+
+and translate_type_expr (type_expr : TypeExpr.t) : Ada_ir.Expr.type_expr =
+  match TypeExpr.p_designated_type_decl type_expr with
+  | Some typ -> (
+    match type_expr with
+    | #SubtypeIndication.t as subtype_indication -> (
+        let constr = SubtypeIndication.f_constraint subtype_indication in
+        match%nolazy constr with
+        | Some (`RangeConstraint {f_range= `RangeSpec {f_range}}) -> (
+            match%nolazy f_range with
+            | `BinOp {f_left; f_op= `OpDoubleDot _; f_right} ->
+                let left = translate_expr (f_left :> Expr.t) in
+                let right = translate_expr (f_right :> Expr.t) in
+                (typ, Some (RangeConstraint (left, right)))
+            | _ ->
+                Utils.legality_error "Expect a range, found %a" Utils.pp_node
+                  f_range )
+        | _ ->
+            (typ, None) )
+    | _ ->
+        (typ, None) )
+  | None ->
+      Utils.lal_error "Cannot find designated type for %a" Utils.pp_node
+        type_expr
 
 and translate_box_expr (_box_expr : BoxExpr.t) = assert false
 

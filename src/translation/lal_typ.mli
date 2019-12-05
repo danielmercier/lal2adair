@@ -12,6 +12,8 @@ type literal =
 
 type call = [CallExpr.t | DottedName.t | Identifier.t | ExplicitDeref.t]
 
+type range = [identifier | BinOp.t | DiscreteSubtypeIndication.t]
+
 val is_literal : [< literal] -> bool
 (** return true if the given literal truelly denotes a literal. i.e. if the
     given literal is an identifier, return true if it denotes an enum *)

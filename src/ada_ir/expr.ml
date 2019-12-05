@@ -3,6 +3,7 @@ type t = {node: expr_node; orig_node: Libadalang.Expr.t; typ: Typ.t}
 and expr_node =
   | Const of const
   | Lval of lval
+  | Slice of lval * range
   | CallExpr of called_expr * t list
   | AccessOf of access_kind * lval
   | Cast of Typ.t * t
@@ -21,6 +22,16 @@ and offset =
   | NoOffset
 
 and const = Int of Int_lit.t | String of string | Null | Enum of Enum.t
+
+and range =
+  | TypeExpr of (Typ.t * range_constraint option)
+  | DoubleDot of t * t
+
+and type_expr = Typ.t * type_constraint option
+
+and type_constraint = RangeConstraint of range_constraint
+
+and range_constraint = t * t
 
 and varinfo = {vname: Name.t}
 
@@ -90,11 +101,21 @@ let rec pp fmt {node} =
     | Address ->
         Format.pp_print_string fmt "Address"
   in
+  let pp_range fmt = function
+    | TypeExpr (typ, Some (left, right)) ->
+        Format.fprintf fmt "@[%a range %a .. %a]" Typ.pp typ pp left pp right
+    | TypeExpr (typ, None) ->
+        Format.fprintf fmt "@[%a no range@]" Typ.pp typ
+    | DoubleDot (left, right) ->
+        Format.fprintf fmt "@[%a .. %a@]" pp left pp right
+  in
   match node with
   | Const const ->
       Format.fprintf fmt "@[%a@]" pp_const const
   | Lval lval ->
       Format.fprintf fmt "@[%a@]" pp_lval lval
+  | Slice (lval, range) ->
+      Format.fprintf fmt "@[%a [%a]@]" pp_lval lval pp_range range
   | CallExpr (called_expr, args) ->
       Format.fprintf fmt "@[%a@]" pp_call_expr (called_expr, args)
   | AccessOf (access_kind, lval) ->
