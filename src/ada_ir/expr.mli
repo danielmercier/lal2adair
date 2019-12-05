@@ -8,7 +8,11 @@ and expr_node =
 
 and lval = lhost * offset
 
-and lhost = Var of varinfo | CustomVar of custom_var
+and lhost =
+  | Var of varinfo
+  | CustomVar of custom_var
+  (* It is possible in Ada, to get the field after calling a function *)
+  | CallHost of called_expr * t list
 
 and offset = Field of fieldinfo * offset | NoOffset
 
