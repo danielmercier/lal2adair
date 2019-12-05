@@ -82,4 +82,34 @@ package body A is
    begin
       X := R.Next.Prev.Next.all.Next.Value;
    end Test_Implicit_Deref_Field;
+
+   procedure Test_Array_Index is
+      type Arr is array (Integer range <>) of Integer;
+      type Arr2D is array (Integer range <>, Integer range <>) of Integer;
+
+      type Rec is record
+         X : Integer;
+         Y : Integer;
+      end record;
+
+      type Rec2 is record
+         FArr : Arr (1 .. 10);
+      end record;
+
+      type ArrRec is array (Integer range <>) of Rec;
+
+      X : Integer;
+      Arr1 : Arr (1 .. 10);
+      Arr2 : Arr2D (1 .. 10, 1 .. 10);
+      Arr3 : access Arr (1 .. 10);
+      Arr4 : access ArrRec (1 .. 10);
+      Arr5 : access Rec2;
+   begin
+      X := Integer (42);
+
+      X := Arr1 (8);
+      X := Arr2 (8, 12);
+      X := Arr4 (7).X;
+      X := Arr5.FArr (8);
+   end Test_Array_Index;
 end A;

@@ -5,6 +5,7 @@ and expr_node =
   | Lval of lval
   | CallExpr of called_expr * t list
   | AccessOf of access_kind * lval
+  | Cast of Typ.t * t
 
 and lval = lhost * offset
 
@@ -14,7 +15,10 @@ and lhost =
   | CallHost of called_expr * t list
   | Mem of t
 
-and offset = Field of fieldinfo * offset | NoOffset
+and offset =
+  | Field of fieldinfo * offset
+  | Index of t list * offset
+  | NoOffset
 
 and const = Int of Int_lit.t | String of string | Null | Enum of Enum.t
 
@@ -70,6 +74,11 @@ let rec pp fmt {node} =
         pp_lhost fmt lhost
     | lhost, Field ({fieldname}, offset) ->
         Format.fprintf fmt "%a.%a" pp_lval (lhost, offset) Name.pp fieldname
+    | lhost, Index (index, offset) ->
+        let pp_sep fmt () = Format.fprintf fmt ",@ " in
+        Format.fprintf fmt "%a [%a]" pp_lval (lhost, offset)
+          (Format.pp_print_list ~pp_sep pp)
+          index
   in
   let pp_access_kind fmt = function
     | Access ->
@@ -90,3 +99,5 @@ let rec pp fmt {node} =
       Format.fprintf fmt "@[%a@]" pp_call_expr (called_expr, args)
   | AccessOf (access_kind, lval) ->
       Format.fprintf fmt "@[%a'%a@]" pp_lval lval pp_access_kind access_kind
+  | Cast (typ, e) ->
+      Format.fprintf fmt "@[%a (%a)@]" Typ.pp typ pp e

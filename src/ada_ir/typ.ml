@@ -2,6 +2,10 @@ open Libadalang
 
 type t = BaseTypeDecl.t
 
+let pp fmt t =
+  Format.pp_print_string fmt
+    (AdaNode.text (Option.value_exn (BaseTypeDecl.f_name t)))
+
 (*and desc =
   | Discrete of discrete_typ
   | Real of real_typ

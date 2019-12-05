@@ -2,6 +2,8 @@ open Libadalang
 
 type t = BaseTypeDecl.t
 
+val pp : Format.formatter -> t -> unit
+
 (*and desc =
   | Discrete of discrete_typ
   | Real of real_typ

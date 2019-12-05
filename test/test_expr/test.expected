@@ -23,3 +23,9 @@ Test_Field:
   <DottedName a.adb:65:12-65:22> = F (1, 2).Z
 Test_Implicit_Deref_Field:
   <DottedName a.adb:83:12-83:43> = R.Next.all.Prev.all.Next.all.Next.all.Value
+Test_Array_Index:
+  <CallExpr a.adb:108:12-108:24> = Integer (42)
+  <CallExpr a.adb:110:12-110:20> = Arr1 [8]
+  <CallExpr a.adb:111:12-111:24> = Arr2 [8, 12]
+  <DottedName a.adb:112:12-112:22> = Arr4.all [7].X
+  <CallExpr a.adb:113:12-113:25> = Arr5.all.FArr [8]

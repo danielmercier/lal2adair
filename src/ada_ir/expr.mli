@@ -5,6 +5,7 @@ and expr_node =
   | Lval of lval
   | CallExpr of called_expr * t list
   | AccessOf of access_kind * lval
+  | Cast of Typ.t * t
 
 and lval = lhost * offset
 
@@ -15,7 +16,10 @@ and lhost =
   | CallHost of called_expr * t list
   | Mem of t
 
-and offset = Field of fieldinfo * offset | NoOffset
+and offset =
+  | Field of fieldinfo * offset
+  | Index of t list * offset
+  | NoOffset
 
 and const = Int of Int_lit.t | String of string | Null | Enum of Enum.t
 

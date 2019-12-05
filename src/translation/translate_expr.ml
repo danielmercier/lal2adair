@@ -1,5 +1,20 @@
 open Libadalang
 
+(** translate an expression to a lvalue checking for an implicit deref *)
+let lval_from_expr (expr : Ada_ir.Expr.t) : Ada_ir.Expr.lval option =
+  if Lal_typ.is_access_type expr.typ then
+    (* Implicit deref *)
+    Some (Mem expr, NoOffset)
+  else
+    match expr.node with
+    | Lval lval ->
+        Some lval
+    | CallExpr (called_expr, args) ->
+        (* If we try to access a field of a callexpr, create a CallHost *)
+        Some (CallHost (called_expr, args), NoOffset)
+    | _ ->
+        None
+
 let rec translate_expr (expr : Expr.t) : Ada_ir.Expr.t =
   { node=
       ( match%nolazy expr with
@@ -50,22 +65,18 @@ and translate_variable (var : Lal_typ.identifier) =
 
 and translate_record_access (name : DottedName.t) =
   match DottedName.f_suffix name with
-  | #Identifier.t as ident -> (
+  | #Identifier.t as ident ->
       let prefix = translate_expr (DottedName.f_prefix name :> Expr.t) in
       let fieldname = Utils.defining_name ident in
-      if Lal_typ.is_access_type prefix.typ then
-        (* Implicit deref *)
-        (Mem prefix, Field ({fieldname}, NoOffset))
-      else
-        match prefix.node with
-        | Lval (lhost, offset) ->
-            (lhost, Field ({fieldname}, offset))
-        | CallExpr (called_expr, args) ->
-            (* If we try to access a field of a callexpr, create a CallHost *)
-            (CallHost (called_expr, args), Field ({fieldname}, NoOffset))
-        | _ ->
+      let lhost, offset =
+        match lval_from_expr prefix with
+        | Some lval ->
+            lval
+        | None ->
             Utils.legality_error "Cannot access a field of a non lvalue: %a"
-              Ada_ir.Expr.pp prefix )
+              Ada_ir.Expr.pp prefix
+      in
+      (lhost, Field ({fieldname}, offset))
   | _ ->
       assert false
 
@@ -94,6 +105,9 @@ and translate_name (name : Name.t) : Ada_ir.Expr.expr_node =
       let prefix = (ExplicitDeref.f_prefix explicit_deref :> Expr.t) in
       let prefix_expr = translate_expr prefix in
       Lval (Mem prefix_expr, NoOffset)
+  | #CallExpr.t as call_expr ->
+      (* Should not be a call *)
+      translate_call_expr call_expr
   | _ ->
       assert false
 
@@ -299,6 +313,53 @@ and translate_attribute_ref (attribute_ref : AttributeRef.t) =
       Ada_ir.Expr.AccessOf (access_kind, accessed)
   | _ ->
       Utils.unimplemented attribute_ref
+
+and translate_call_expr (call_expr : CallExpr.t) : Ada_ir.Expr.expr_node =
+  (* Handle call expr other than subprogram call *)
+  let name = CallExpr.f_name call_expr in
+  match try Name.p_name_designated_type name with _ -> None with
+  | Some typ -> (
+      (* This is a cast *)
+      match%nolazy CallExpr.f_suffix call_expr with
+      | `AssocList {list= [`ParamAssoc {f_r_expr}]} ->
+          let suffix_expr = translate_expr (f_r_expr :> Expr.t) in
+          Cast (typ, suffix_expr)
+      | suffix ->
+          Utils.legality_error
+            "Expect an AssocList with one element for a type cast, found %a"
+            Utils.pp_node suffix )
+  | None -> (
+      (* Either an index access or a slice, in each case, we can translate
+         the name as an expression *)
+      let name_expr = translate_expr (name :> Expr.t) in
+      let lhost, offset =
+        match lval_from_expr name_expr with
+        | Some lval ->
+            lval
+        | None ->
+            Utils.legality_error "Cannot access an index of a non lvalue: %a"
+              Ada_ir.Expr.pp name_expr
+      in
+      if CallExpr.p_is_array_slice call_expr then assert false
+      else
+        (* Regular array access *)
+        match%nolazy CallExpr.f_suffix call_expr with
+        | `AssocList {list= assoc_list} ->
+            let translate_assoc =
+              function%nolazy
+              | `ParamAssoc {ParamAssoc.f_r_expr} ->
+                  translate_expr (f_r_expr :> Expr.t)
+              | assoc ->
+                  Utils.legality_error
+                    "Expect a ParamAssoc with for index expression, found %a"
+                    Utils.pp_node assoc
+            in
+            let index = List.map ~f:translate_assoc assoc_list in
+            Lval (lhost, Index (index, offset))
+        | suffix ->
+            Utils.legality_error
+              "Expect an AssocList with one element for a type cast, found %a"
+              Utils.pp_node suffix )
 
 and translate_box_expr (_box_expr : BoxExpr.t) = assert false
 
