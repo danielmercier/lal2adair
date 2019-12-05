@@ -1,6 +1,6 @@
 open Libadalang
 
-type t = [BaseTypeDecl.t | TypeExpr.t]
+type t = BaseTypeDecl.t
 
 (*and desc =
   | Discrete of discrete_typ

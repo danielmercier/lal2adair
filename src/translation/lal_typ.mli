@@ -32,3 +32,6 @@ val is_call : call -> bool
 (** return true if the given node is a call. Be carefull, this does not take
     into account the context. It just looks at the declaration of the given
     node. *)
+
+val is_access_type : [< BaseTypeDecl.t] -> bool
+(** return true if the given type is access looking at the full view *)

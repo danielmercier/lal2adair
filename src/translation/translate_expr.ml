@@ -53,15 +53,19 @@ and translate_record_access (name : DottedName.t) =
   | #Identifier.t as ident -> (
       let prefix = translate_expr (DottedName.f_prefix name :> Expr.t) in
       let fieldname = Utils.defining_name ident in
-      match prefix.node with
-      | Lval (lhost, offset) ->
-          (lhost, Field ({fieldname}, offset))
-      | CallExpr (called_expr, args) ->
-          (* If we try to access a field of a callexpr, create a CallHost *)
-          (CallHost (called_expr, args), Field ({fieldname}, NoOffset))
-      | _ ->
-          Utils.legality_error "Cannot access a field of a non lvalue: %a"
-            Ada_ir.Expr.pp prefix )
+      if Lal_typ.is_access_type prefix.typ then
+        (* Implicit deref *)
+        (Mem prefix, Field ({fieldname}, NoOffset))
+      else
+        match prefix.node with
+        | Lval (lhost, offset) ->
+            (lhost, Field ({fieldname}, offset))
+        | CallExpr (called_expr, args) ->
+            (* If we try to access a field of a callexpr, create a CallHost *)
+            (CallHost (called_expr, args), Field ({fieldname}, NoOffset))
+        | _ ->
+            Utils.legality_error "Cannot access a field of a non lvalue: %a"
+              Ada_ir.Expr.pp prefix )
   | _ ->
       assert false
 

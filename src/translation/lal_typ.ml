@@ -125,3 +125,15 @@ let is_call (call : call) =
   with PropertyError s ->
     Utils.log_warning "PropertyError %s for %a" s Utils.pp_node call ;
     false
+
+let map_to_full_view ~default ~f typ =
+  try
+    let full_typ = Option.value ~default:typ (BaseTypeDecl.p_full_view typ) in
+    f full_typ
+  with PropertyError s ->
+    Utils.log_warning "PropertyError %s for %a" s Utils.pp_node typ ;
+    default
+
+let is_access_type typ =
+  map_to_full_view ~f:BaseTypeDecl.p_is_access_type ~default:false
+    (typ :> BaseTypeDecl.t)

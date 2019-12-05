@@ -18,7 +18,7 @@ package body A is
       X := F1 (1, 2, 3);
       X := F1 (1, X3 => 3, X2 => 2);
       X := F1;
-      X := F1 (1, 2 X3 => 3);
+      X := F1 (1, 2, X3 => 3);
       X := F1 (1);
       X := F1 (X2 => 2);
 
@@ -64,4 +64,22 @@ package body A is
       X := F (1, 2).R.Y;
       X := F (1, 2).Z;
    end Test_Field;
+
+   procedure Test_Implicit_Deref_Field is
+      type Rec_Ptr;
+
+      type Rec is record
+         Value : Integer;
+         Next : Rec_Ptr;
+         Prev : access Rec;
+      end record;
+
+      type Rec_Ptr is access all Rec;
+
+
+      R : Rec;
+      X : Integer;
+   begin
+      X := R.Next.Prev.Next.all.Next.Value;
+   end Test_Implicit_Deref_Field;
 end A;
