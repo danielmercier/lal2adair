@@ -1,3 +1,4 @@
-(executable
-   (name main)
+(tests
+   (names test)
+   (deps a.adb)
    (libraries libadalang ada_ir translation))
