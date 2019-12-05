@@ -11,10 +11,6 @@ let legality_error fmt =
 
 let log_warning fmt = Format.printf fmt
 
-let compute_name defining_name =
-  { Ada_ir.Name.plain= AdaNode.text defining_name
-  ; mangled= AdaNode.short_image defining_name }
-
 let pp_node fmt n = Format.pp_print_string fmt (AdaNode.short_image n)
 
 let unimplemented node =
@@ -28,25 +24,20 @@ let try_or_undefined property f node =
       property s ;
     Ada_ir.Expr.undefined ()
 
-let unique_name name =
-  let of_node node =
-    {Ada_ir.Name.plain= AdaNode.text node; mangled= AdaNode.short_image node}
-  in
+let defining_name name =
   match (name :> Name.t) with
-  | #DefiningName.t ->
-      of_node name
+  | #DefiningName.t as defining_name ->
+      defining_name
   | _ -> (
     try
       match Name.p_referenced_defining_name name with
       | Some def_name ->
-          of_node def_name
+          def_name
       | None ->
-          log_warning "Cannot find a defining name for %a" pp_node name ;
-          of_node name
+          lal_error "Cannot find a defining name for %a" pp_node name
     with PropertyError s ->
-      log_warning "Cannot find a defining name for %a: PropertyError %s"
-        pp_node name s ;
-      of_node name )
+      lal_error "Cannot find a defining name for %a: PropertyError %s" pp_node
+        name s )
 
 let referenced_subp_spec name =
   try

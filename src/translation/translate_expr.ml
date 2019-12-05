@@ -45,13 +45,20 @@ and translate_lval (expr : Expr.t) =
         expr
 
 and translate_variable (var : Lal_typ.identifier) =
-  let vname = Utils.unique_name var in
+  let vname = Utils.defining_name var in
   Ada_ir.Expr.(Var {vname}, NoOffset)
 
 and translate_record_access (name : DottedName.t) =
-  let _prefix = DottedName.f_prefix name in
-  let _suffix = DottedName.f_suffix name in
-  assert false
+  let prefix = translate_expr (DottedName.f_prefix name :> Expr.t) in
+  match (prefix.node, DottedName.f_suffix name) with
+  | Lval (lhost, offset), (#Identifier.t as ident) ->
+      let fieldname = Utils.defining_name ident in
+      (lhost, Field ({fieldname}, offset))
+  | _, #Identifier.t ->
+      Utils.legality_error "Cannot access a field of a non lvalue: %a"
+        Ada_ir.Expr.pp prefix
+  | _ ->
+      assert false
 
 and translate_contract_cases (_contract_cases : ContractCases.t) = assert false
 
@@ -68,7 +75,7 @@ and translate_name (name : Name.t) : Ada_ir.Expr.expr_node =
   match name with
   | _ when Lal_typ.is_lvalue name ->
       Ada_ir.Expr.Lval (translate_lval (name :> Expr.t))
-  | #Lal_typ.literal as literal ->
+  | #Lal_typ.literal as literal when Lal_typ.is_literal literal ->
       translate_literal literal
   | #Lal_typ.call as call when Lal_typ.is_call call ->
       translate_call call
@@ -99,15 +106,27 @@ and translate_literal (literal : Lal_typ.literal) =
           let name = AdaNode.text n in
           Const
             (Enum
-               { Ada_ir.Enum.name
+               { Ada_ir.Enum.name= StdCharLiteral name
                ; pos= Ada_ir.Int_lit.of_int (Expr.p_eval_as_int n) }) )
         char_lit
   | #RealLiteral.t as real_literal ->
       (* Not implemented *)
       Utils.unimplemented real_literal
+  | #Lal_typ.identifier as ident ->
+      (* Assume it denotes an enum. Otherwise, translate_literal should not
+         have been called *)
+      assert (Lal_typ.is_literal ident) ;
+      let name = Utils.defining_name ident in
+      Utils.try_or_undefined "Expr.p_eval_as_int"
+        (fun n ->
+          Const
+            (Enum
+               { Ada_ir.Enum.name= EnumLiteral name
+               ; pos= Ada_ir.Int_lit.of_int (Expr.p_eval_as_int n) }) )
+        ident
 
 and translate_call (call : Lal_typ.call) =
-  let funinfo ident = Ada_ir.Expr.{fname= Utils.unique_name ident} in
+  let funinfo ident = Ada_ir.Expr.{fname= Utils.defining_name ident} in
   let add_self self subp_spec param_actuals =
     (* Assuming we are facing a dot call, add self to the param actuals with
        the good identifier *)

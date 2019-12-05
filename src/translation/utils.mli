@@ -13,9 +13,6 @@ val legality_error : ('a, Format.formatter, unit, _) format4 -> 'a
 val log_warning : ('a, Format.formatter, unit, unit) format4 -> 'a
 (** log the given warning *)
 
-val compute_name : DefiningName.t -> Ada_ir.Name.t
-(** return the Name.t of the given libadalang defining name *)
-
 val try_or_undefined :
      string
   -> (([< AdaNode.t] as 'a) -> Ada_ir.Expr.expr_node)
@@ -27,8 +24,8 @@ val try_or_undefined :
 val unimplemented : [< AdaNode.t] -> Ada_ir.Expr.expr_node
 (** log a warning about not implemented node and return undefined *)
 
-val unique_name : [< Lal_typ.identifier] -> Ada_ir.Name.t
-(** given a lal name, return a unique name using name resolution *)
+val defining_name : [< Lal_typ.identifier] -> Ada_ir.Name.t
+(** given a lal name, return a defining name using name resolution *)
 
 val referenced_subp_spec : [< Name.t] -> BaseSubpSpec.t
 (** assuming given name refers to a subprogram, return its specification.

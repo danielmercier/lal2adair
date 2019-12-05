@@ -1,13 +1,14 @@
 open Libadalang
 
+type identifier = [DottedName.t | Identifier.t]
+
 type literal =
   [ IntLiteral.t
   | StringLiteral.t
   | NullLiteral.t
   | CharLiteral.t
-  | RealLiteral.t ]
-
-type identifier = [DottedName.t | Identifier.t]
+  | RealLiteral.t
+  | identifier ]
 
 type variable_decl =
   [ ParamSpec.t
@@ -22,6 +23,28 @@ type call = [CallExpr.t | DottedName.t | Identifier.t | ExplicitDeref.t]
 
 type subprogram_decl =
   [BasicSubpDecl.t | GenericSubpInstantiation.t | GenericDecl.t]
+
+let is_literal = function
+  | #IntLiteral.t
+  | #StringLiteral.t
+  | #NullLiteral.t
+  | #CharLiteral.t
+  | #RealLiteral.t ->
+      true
+  | #identifier as ident -> (
+    try
+      match Name.p_referenced_decl ident with
+      | Some #EnumLiteralDecl.t ->
+          true
+      | Some _ ->
+          false
+      | None ->
+          Utils.log_warning "No declaration for %a" Utils.pp_node ident ;
+          false
+    with PropertyError s ->
+      Utils.log_warning "PropertyError %s for %a calling p_referenced_decl" s
+        Utils.pp_node ident ;
+      false )
 
 let is_variable ident =
   try

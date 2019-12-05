@@ -8,13 +8,17 @@ and expr_node =
 
 and lval = lhost * offset
 
-and lhost = Var of varinfo
+and lhost = Var of varinfo | CustomVar of custom_var
 
-and offset = NoOffset
+and offset = Field of fieldinfo * offset | NoOffset
 
 and const = Int of Int_lit.t | String of string | Null | Enum of Enum.t
 
 and varinfo = {vname: Name.t}
+
+and custom_var = Undefined
+
+and fieldinfo = {fieldname: Name.t}
 
 and called_expr = Cfun of funinfo | Pfun of t
 
@@ -22,8 +26,7 @@ and funinfo = {fname: Name.t}
 
 and access_kind = Access | Unchecked_Access | Unrestriced_Access | Address
 
-let undefined () =
-  Lval (Var {vname= {plain= "undefined"; mangled= "_standard"}}, NoOffset)
+let undefined () = Lval (CustomVar Undefined, NoOffset)
 
 let rec pp fmt {node} =
   let pp_const fmt = function
@@ -36,10 +39,18 @@ let rec pp fmt {node} =
     | Enum e ->
         Format.fprintf fmt "%a" Enum.pp e
   in
-  let pp_lval fmt lval =
+  let pp_lhost fmt = function
+    | Var {vname} ->
+        Name.pp fmt vname
+    | CustomVar Undefined ->
+        Format.pp_print_string fmt "undefined"
+  in
+  let rec pp_lval fmt lval =
     match lval with
-    | Var {vname= {plain}}, NoOffset ->
-        Format.pp_print_string fmt plain
+    | lhost, NoOffset ->
+        pp_lhost fmt lhost
+    | lhost, Field ({fieldname}, offset) ->
+        Format.fprintf fmt "%a.%a" pp_lval (lhost, offset) Name.pp fieldname
   in
   let pp_call_expr fmt call_expr =
     let pp_args =
@@ -47,8 +58,8 @@ let rec pp fmt {node} =
       Format.pp_print_list ~pp_sep pp
     in
     match call_expr with
-    | Cfun {fname= {plain}}, args ->
-        Format.fprintf fmt "@[<hv 2>%s@ (@[%a@])@]" plain pp_args args
+    | Cfun {fname}, args ->
+        Format.fprintf fmt "@[<hv 2>%a@ (@[%a@])@]" Name.pp fname pp_args args
     | Pfun expr, args ->
         Format.fprintf fmt "@[<hv 2>%a.all@ (@[%a@])@]" pp expr pp_args args
   in

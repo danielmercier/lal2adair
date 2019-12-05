@@ -1,1 +1,5 @@
-type t = {plain: string; mangled: string}
+open Libadalang
+
+type t = DefiningName.t
+
+val pp : Format.formatter -> t -> unit

@@ -2,7 +2,7 @@ open Libadalang
 
 type t = [BaseTypeDecl.t | TypeExpr.t]
 
-and desc =
+(*and desc =
   | Discrete of discrete_typ
   | Real of real_typ
   | Access of access_typ
@@ -62,4 +62,4 @@ and constr =
   | Alternatives of constr list
   | Not of constr
 
-let desc = assert false
+let desc = assert false*)

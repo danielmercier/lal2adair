@@ -1,15 +1,20 @@
 open Libadalang
 
+type identifier = [DottedName.t | Identifier.t]
+
 type literal =
   [ IntLiteral.t
   | StringLiteral.t
   | NullLiteral.t
   | CharLiteral.t
-  | RealLiteral.t ]
-
-type identifier = [DottedName.t | Identifier.t]
+  | RealLiteral.t
+  | identifier ]
 
 type call = [CallExpr.t | DottedName.t | Identifier.t | ExplicitDeref.t]
+
+val is_literal : literal -> bool
+(** return true if the given literal truelly denotes a literal. i.e. if the
+    given literal is an identifier, return true if it denotes an enum *)
 
 val is_variable : identifier -> bool
 (** return true if the given identifier is a variable *)

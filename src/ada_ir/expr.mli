@@ -8,13 +8,17 @@ and expr_node =
 
 and lval = lhost * offset
 
-and lhost = Var of varinfo
+and lhost = Var of varinfo | CustomVar of custom_var
 
-and offset = NoOffset
+and offset = Field of fieldinfo * offset | NoOffset
 
 and const = Int of Int_lit.t | String of string | Null | Enum of Enum.t
 
 and varinfo = {vname: Name.t}
+
+and custom_var = Undefined
+
+and fieldinfo = {fieldname: Name.t}
 
 and called_expr = Cfun of funinfo | Pfun of t
 
