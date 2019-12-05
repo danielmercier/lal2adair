@@ -24,6 +24,12 @@ type call = [CallExpr.t | DottedName.t | Identifier.t | ExplicitDeref.t]
 type subprogram_decl =
   [BasicSubpDecl.t | GenericSubpInstantiation.t | GenericDecl.t]
 
+let map_property ~f ~default value =
+  try f value
+  with PropertyError s ->
+    Utils.log_warning "PropertyError %s for %a" s Utils.pp_node value ;
+    default
+
 let is_literal = function
   | #IntLiteral.t
   | #StringLiteral.t
@@ -31,23 +37,21 @@ let is_literal = function
   | #CharLiteral.t
   | #RealLiteral.t ->
       true
-  | #identifier as ident -> (
-    try
-      match Name.p_referenced_decl ident with
-      | Some #EnumLiteralDecl.t ->
-          true
-      | Some _ ->
-          false
-      | None ->
-          Utils.log_warning "No declaration for %a" Utils.pp_node ident ;
-          false
-    with PropertyError s ->
-      Utils.log_warning "PropertyError %s for %a calling p_referenced_decl" s
-        Utils.pp_node ident ;
-      false )
+  | #identifier as ident ->
+      let f ident =
+        match Name.p_referenced_decl ident with
+        | Some #EnumLiteralDecl.t ->
+            true
+        | Some _ ->
+            false
+        | None ->
+            Utils.log_warning "No declaration for %a" Utils.pp_node ident ;
+            false
+      in
+      map_property ~f ~default:false ident
 
 let is_variable ident =
-  try
+  let f ident =
     match Name.p_referenced_decl ident with
     | Some #variable_decl ->
         true
@@ -56,13 +60,11 @@ let is_variable ident =
     | None ->
         Utils.log_warning "No declaration for %a" Utils.pp_node ident ;
         false
-  with PropertyError s ->
-    Utils.log_warning "PropertyError %s for %a calling p_referenced_decl" s
-      Utils.pp_node ident ;
-    false
+  in
+  map_property ~f ~default:false (ident :> identifier)
 
 let is_record_access dotted_name =
-  try
+  let f dotted_name =
     match Name.p_referenced_decl dotted_name with
     | Some #field_decl ->
         true
@@ -71,13 +73,11 @@ let is_record_access dotted_name =
     | None ->
         Utils.log_warning "No declaration for %a" Utils.pp_node dotted_name ;
         false
-  with PropertyError s ->
-    Utils.log_warning "PropertyError %s for %a calling p_referenced_decl" s
-      Utils.pp_node dotted_name ;
-    false
+  in
+  map_property ~f ~default:false dotted_name
 
 let is_lvalue name =
-  match name with
+  match (name :> Name.t) with
   | #Identifier.t as ident ->
       is_variable ident
   | #DottedName.t as dotted_name ->
@@ -87,7 +87,7 @@ let is_lvalue name =
       false
 
 let is_subprogram ident =
-  try
+  let f ident =
     match Name.p_referenced_decl ident with
     | Some #subprogram_decl ->
         true
@@ -96,14 +96,12 @@ let is_subprogram ident =
     | None ->
         Utils.log_warning "No declaration for %a" Utils.pp_node ident ;
         false
-  with PropertyError s ->
-    Utils.log_warning "PropertyError %s for %a calling p_referenced_decl" s
-      Utils.pp_node ident ;
-    false
+  in
+  map_property ~f ~default:false (ident :> identifier)
 
-let is_call (call : call) =
-  try
-    match%nolazy call with
+let is_call call =
+  let f call =
+    match%nolazy (call : call) with
     | #identifier as ident ->
         is_subprogram ident
     | `ExplicitDeref {f_prefix} -> (
@@ -122,9 +120,8 @@ let is_call (call : call) =
           false )
     | #CallExpr.t ->
         Name.p_is_call call
-  with PropertyError s ->
-    Utils.log_warning "PropertyError %s for %a" s Utils.pp_node call ;
-    false
+  in
+  map_property ~f ~default:false (call :> call)
 
 let map_to_full_view ~default ~f typ =
   try
