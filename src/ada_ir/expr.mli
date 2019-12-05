@@ -13,6 +13,7 @@ and lhost =
   | CustomVar of custom_var
   (* It is possible in Ada, to get the field after calling a function *)
   | CallHost of called_expr * t list
+  | Mem of t
 
 and offset = Field of fieldinfo * offset | NoOffset
 

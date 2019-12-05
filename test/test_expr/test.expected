@@ -8,14 +8,16 @@ Test_Call:
   <CallExpr a.adb:23:12-23:24> = F1 (1, 2, 3)
   <CallExpr a.adb:25:12-25:24> = F2 (1, 2, 3, 4)
   <Id "F2" a.adb:26:12-26:14> = F2 (1, 2, 4, 4)
+Test_Deref:
+  <ExplicitDeref a.adb:35:12-35:21> = X_Ptr.all
 Test_Field:
-  <DottedName a.adb:47:12-47:16> = R1.X
-  <DottedName a.adb:48:12-48:16> = R1.Y
-  <DottedName a.adb:49:12-49:18> = R2.R.X
-  <DottedName a.adb:50:12-50:18> = R2.R.Y
-  <DottedName a.adb:51:12-51:16> = R2.Z
-  <DottedName a.adb:52:12-52:15> = F ().X
-  <DottedName a.adb:53:12-53:15> = F ().Y
-  <DottedName a.adb:54:12-54:24> = F (1, 2).R.X
-  <DottedName a.adb:55:12-55:24> = F (1, 2).R.Y
-  <DottedName a.adb:56:12-56:22> = F (1, 2).Z
+  <DottedName a.adb:56:12-56:16> = R1.X
+  <DottedName a.adb:57:12-57:16> = R1.Y
+  <DottedName a.adb:58:12-58:18> = R2.R.X
+  <DottedName a.adb:59:12-59:18> = R2.R.Y
+  <DottedName a.adb:60:12-60:16> = R2.Z
+  <DottedName a.adb:61:12-61:15> = F ().X
+  <DottedName a.adb:62:12-62:15> = F ().Y
+  <DottedName a.adb:63:12-63:24> = F (1, 2).R.X
+  <DottedName a.adb:64:12-64:24> = F (1, 2).R.Y
+  <DottedName a.adb:65:12-65:22> = F (1, 2).Z

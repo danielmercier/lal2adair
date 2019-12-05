@@ -26,6 +26,15 @@ package body A is
       X := F2;
    end Test_Call;
 
+   procedure Test_Deref is
+      type Int_Ptr is access all Integer;
+
+      X : Integer;
+      X_Ptr : Int_Ptr;
+   begin
+      X := X_Ptr.all;
+   end Test_Deref;
+
    procedure Test_Field is
       type Rec is record
          X : Integer;

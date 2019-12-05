@@ -12,6 +12,7 @@ and lhost =
   | Var of varinfo
   | CustomVar of custom_var
   | CallHost of called_expr * t list
+  | Mem of t
 
 and offset = Field of fieldinfo * offset | NoOffset
 
@@ -60,6 +61,8 @@ let rec pp fmt {node} =
         pp_call_expr fmt (called_expr, args)
     | CustomVar Undefined ->
         Format.pp_print_string fmt "undefined"
+    | Mem e ->
+        Format.fprintf fmt "%a.all" pp e
   in
   let rec pp_lval fmt lval =
     match lval with

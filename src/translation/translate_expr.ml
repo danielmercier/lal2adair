@@ -86,6 +86,10 @@ and translate_name (name : Name.t) : Ada_ir.Expr.expr_node =
       translate_call call
   | #AttributeRef.t as attribute_ref ->
       translate_attribute_ref attribute_ref
+  | #ExplicitDeref.t as explicit_deref ->
+      let prefix = (ExplicitDeref.f_prefix explicit_deref :> Expr.t) in
+      let prefix_expr = translate_expr prefix in
+      Lval (Mem prefix_expr, NoOffset)
   | _ ->
       assert false
 
