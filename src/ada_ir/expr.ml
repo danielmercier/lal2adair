@@ -7,6 +7,7 @@ and expr_node =
   | AccessOf of access_kind * lval
   | Membership of t * membership_kind * membership_choice list
   | Cast of Typ.t * t
+  | QualExpr of Typ.t * t
 
 and lval = lhost * offset
 
@@ -165,6 +166,8 @@ let rec pp fmt {node} =
       Format.fprintf fmt "@[%a'%a@]" pp_lval lval pp_access_kind access_kind
   | Cast (typ, e) ->
       Format.fprintf fmt "@[%a (%a)@]" Typ.pp typ pp e
+  | QualExpr (typ, e) ->
+      Format.fprintf fmt "@[%a'(%a)@]" Typ.pp typ pp e
   | Membership (expr, kind, choices) ->
       let pp_kind fmt = function
         | In ->

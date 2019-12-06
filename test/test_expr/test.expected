@@ -41,3 +41,5 @@ Test_Membership_Expr:
   <MembershipExpr a.adb:150:12-150:22> = X in Expr(Y) | Expr(Z)
   <MembershipExpr a.adb:151:12-151:29> = X not in Type(SmallInt)
   <MembershipExpr a.adb:152:12-152:31> = X in Range(Type(SmallInt)'Range)
+Test_Qualified_Expr:
+  <QualExpr a.adb:160:12-160:24> = SmallInt'(1)

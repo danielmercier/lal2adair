@@ -141,6 +141,8 @@ and translate_name (name : Name.t) : Ada_ir.Expr.expr_node =
   | #CallExpr.t as call_expr ->
       (* Should not be a call *)
       translate_call_expr call_expr
+  | #QualExpr.t as qual_expr ->
+      translate_qual_expr qual_expr
   | _ ->
       assert false
 
@@ -522,6 +524,20 @@ and translate_type_expr (type_expr : TypeExpr.t) : Ada_ir.Expr.type_expr =
   | None ->
       Utils.lal_error "Cannot find designated type for %a" Utils.pp_node
         type_expr
+
+and translate_qual_expr (qual_expr : QualExpr.t) : Ada_ir.Expr.expr_node =
+  let prefix = QualExpr.f_prefix qual_expr in
+  let subtype_mark =
+    match try Name.p_name_designated_type prefix with _ -> None with
+    | Some typ ->
+        typ
+    | None ->
+        Utils.legality_error
+          "Expect a subtype mark for prefix of qualified expression, found %a"
+          Utils.pp_node prefix
+  in
+  let suffix = translate_expr (QualExpr.f_suffix qual_expr :> Expr.t) in
+  QualExpr (subtype_mark, suffix)
 
 and translate_box_expr (_box_expr : BoxExpr.t) = assert false
 

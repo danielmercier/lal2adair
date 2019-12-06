@@ -7,6 +7,7 @@ and expr_node =
   | AccessOf of access_kind * lval
   | Membership of t * membership_kind * membership_choice list
   | Cast of Typ.t * t
+  | QualExpr of Typ.t * t
 
 and lval = lhost * offset
 

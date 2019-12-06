@@ -151,4 +151,12 @@ package body A is
       B := X not in SmallInt;
       B := X in SmallInt'Range;
    end Test_Membership_Expr;
+
+   procedure Test_Qualified_Expr is
+      subtype SmallInt is Integer range 1 .. 5;
+
+      X : SmallInt;
+   begin
+      X := SmallInt'(1);
+   end Test_Qualified_Expr;
 end A;
