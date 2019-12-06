@@ -1,45 +1,47 @@
 Test_Call:
-  <CallExpr a.adb:17:12-17:42> = F1 (1, 2, 3)
-  <CallExpr a.adb:18:12-18:24> = F1 (1, 2, 3)
-  <CallExpr a.adb:19:12-19:36> = F1 (1, 2, 3)
-  <Id "F1" a.adb:20:12-20:14> = F1 (1, 1, 3)
-  <CallExpr a.adb:21:12-21:30> = F1 (1, 2, 3)
-  <CallExpr a.adb:22:12-22:18> = F1 (1, 1, 3)
-  <CallExpr a.adb:23:12-23:24> = F1 (1, 2, 3)
-  <CallExpr a.adb:25:12-25:24> = F2 (1, 2, 3, 4)
-  <Id "F2" a.adb:26:12-26:14> = F2 (1, 2, 4, 4)
+  <CallExpr a.adb:18:12-18:42> = F1 (1, 2, 3)
+  <CallExpr a.adb:19:12-19:24> = F1 (1, 2, 3)
+  <CallExpr a.adb:20:12-20:36> = F1 (1, 2, 3)
+  <Id "F1" a.adb:21:12-21:14> = F1 (1, 1, 3)
+  <CallExpr a.adb:22:12-22:30> = F1 (1, 2, 3)
+  <CallExpr a.adb:23:12-23:18> = F1 (1, 1, 3)
+  <CallExpr a.adb:24:12-24:24> = F1 (1, 2, 3)
+  <CallExpr a.adb:26:12-26:24> = F2 (1, 2, 3, 4)
+  <Id "F2" a.adb:27:12-27:14> = F2 (1, 2, 4, 4)
+  <CallExpr a.adb:29:12-29:33> = P1.all (1, 2, 3)
+  <CallExpr a.adb:31:12-31:42> = P2.all (1, 2, 3, 4)
 Test_Deref:
-  <ExplicitDeref a.adb:35:12-35:21> = X_Ptr.all
+  <ExplicitDeref a.adb:40:12-40:21> = X_Ptr.all
 Test_Field:
-  <DottedName a.adb:56:12-56:16> = R1.X
-  <DottedName a.adb:57:12-57:16> = R1.Y
-  <DottedName a.adb:58:12-58:18> = R2.R.X
-  <DottedName a.adb:59:12-59:18> = R2.R.Y
-  <DottedName a.adb:60:12-60:16> = R2.Z
-  <DottedName a.adb:61:12-61:15> = F ().X
-  <DottedName a.adb:62:12-62:15> = F ().Y
-  <DottedName a.adb:63:12-63:24> = F (1, 2).R.X
-  <DottedName a.adb:64:12-64:24> = F (1, 2).R.Y
-  <DottedName a.adb:65:12-65:22> = F (1, 2).Z
+  <DottedName a.adb:61:12-61:16> = R1.X
+  <DottedName a.adb:62:12-62:16> = R1.Y
+  <DottedName a.adb:63:12-63:18> = R2.R.X
+  <DottedName a.adb:64:12-64:18> = R2.R.Y
+  <DottedName a.adb:65:12-65:16> = R2.Z
+  <DottedName a.adb:66:12-66:15> = F ().X
+  <DottedName a.adb:67:12-67:15> = F ().Y
+  <DottedName a.adb:68:12-68:24> = F (1, 2).R.X
+  <DottedName a.adb:69:12-69:24> = F (1, 2).R.Y
+  <DottedName a.adb:70:12-70:22> = F (1, 2).Z
 Test_Implicit_Deref_Field:
-  <DottedName a.adb:83:12-83:43> = R.Next.all.Prev.all.Next.all.Next.all.Value
+  <DottedName a.adb:87:12-87:43> = R.Next.all.Prev.all.Next.all.Next.all.Value
 Test_Array_Index:
-  <CallExpr a.adb:120:12-120:24> = Integer (42)
-  <CallExpr a.adb:122:12-122:20> = Arr1 [8]
-  <CallExpr a.adb:123:12-123:24> = Arr2 [8, 12]
-  <DottedName a.adb:124:12-124:22> = Arr4.all [7].X
-  <CallExpr a.adb:125:12-125:25> = Arr5.all.FArr [8]
-  <CallExpr a.adb:127:15-127:28> = Arr1 [1 .. 5]
-  <CallExpr a.adb:128:15-128:30> = Arr1 [SmallInt no range]
-  <CallExpr a.adb:129:15-129:42> = Arr1 [Integer range 1 .. 5]
-  <CallExpr a.adb:130:15-130:36> = Arr1 [Type(SmallInt)'Range]
-  <CallExpr a.adb:131:15-131:32> = Arr1 [Array(Arr6)'Range]
-  <CallExpr a.adb:132:15-132:35> = Arr1 [Array(Arr2)'Range(1)]
-  <CallExpr a.adb:134:12-134:27> = Arr6 [3 .. 5] [3]
-  <CallExpr a.adb:136:12-136:32> = Arr7 [2 .. 4] [3].all [10]
+  <CallExpr a.adb:124:12-124:24> = Integer (42)
+  <CallExpr a.adb:126:12-126:20> = Arr1 [8]
+  <CallExpr a.adb:127:12-127:23> = Arr2 [8, 9]
+  <DottedName a.adb:128:12-128:22> = Arr4.all [7].X
+  <CallExpr a.adb:129:12-129:25> = Arr5.all.FArr [8]
+  <CallExpr a.adb:131:15-131:28> = Arr1 [1 .. 5]
+  <CallExpr a.adb:132:15-132:30> = Arr1 [SmallInt no range]
+  <CallExpr a.adb:133:15-133:42> = Arr1 [Integer range 1 .. 5]
+  <CallExpr a.adb:134:15-134:36> = Arr1 [Type(SmallInt)'Range]
+  <CallExpr a.adb:135:15-135:32> = Arr1 [Array(Arr6)'Range]
+  <CallExpr a.adb:136:15-136:35> = Arr1 [Array(Arr2)'Range(1)]
+  <CallExpr a.adb:138:12-138:27> = Arr6 [3 .. 5] [3]
+  <CallExpr a.adb:140:12-140:32> = Arr7 [2 .. 4] [3].all [10]
 Test_Membership_Expr:
-  <MembershipExpr a.adb:150:12-150:22> = X in Expr(Y) | Expr(Z)
-  <MembershipExpr a.adb:151:12-151:29> = X not in Type(SmallInt)
-  <MembershipExpr a.adb:152:12-152:31> = X in Range(Type(SmallInt)'Range)
+  <MembershipExpr a.adb:152:12-152:22> = X in Expr(Y) | Expr(Z)
+  <MembershipExpr a.adb:153:12-153:29> = X not in Type(SmallInt)
+  <MembershipExpr a.adb:154:12-154:31> = X in Range(Type(SmallInt)'Range)
 Test_Qualified_Expr:
-  <QualExpr a.adb:160:12-160:24> = SmallInt'(1)
+  <QualExpr a.adb:162:12-162:24> = SmallInt'(1)

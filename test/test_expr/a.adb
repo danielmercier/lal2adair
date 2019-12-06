@@ -1,8 +1,9 @@
 package body A is
    procedure Test_Call is
-      function F1 (X1, X2 : Integer := 1; X3 : Integer := 3) return Integer;
+      function F1 (X1, X2 : Integer := 1; X3 : Integer := 3) return Integer
+         with Import;
       function F2 (X1 : Integer := 1; X2 : Integer := 2; X3, X4 : Integer := 4)
-         return Integer;
+         return Integer with Import;
 
       type F1Ptr is access function (X1, X2 : Integer; X3 : Integer := 3)
          return Integer;
@@ -11,8 +12,8 @@ package body A is
 
       X : Integer;
 
-      P1 : constant F1Ptr := F1'Access;
-      P2 : constant F2Ptr := F2'Access;
+      P1 : F1Ptr;
+      P2 : F2Ptr;
    begin
       X := F1 (X2 => 2, X3 => 3, X1 => 1);
       X := F1 (1, 2, 3);
@@ -24,13 +25,17 @@ package body A is
 
       X := F2 (X3 => 3);
       X := F2;
+
+      X := P1 (X2 => 2, X1 => 1);
+
+      X := P2 (X2 => 2, X1 => 1, X4 => 4);
    end Test_Call;
 
    procedure Test_Deref is
       type Int_Ptr is access all Integer;
 
-      X : Integer;
-      X_Ptr : Int_Ptr;
+      X : aliased Integer;
+      X_Ptr : Int_Ptr := X'Access;
    begin
       X := X_Ptr.all;
    end Test_Deref;
@@ -46,12 +51,12 @@ package body A is
          Z : Integer;
       end record;
 
-      function F return Rec;
-      function F (A1, A2 : Integer) return Rec2;
+      function F return Rec with Import;
+      function F (A1, A2 : Integer) return Rec2 with Import;
 
       X : Integer;
-      R1 : Rec;
-      R2 : Rec2;
+      R1 : Rec := F;
+      R2 : Rec2 := F (1, 2);
    begin
       X := R1.X;
       X := R1.Y;
@@ -66,16 +71,15 @@ package body A is
    end Test_Field;
 
    procedure Test_Implicit_Deref_Field is
-      type Rec_Ptr;
+      type Rec;
+
+      type Rec_Ptr is access Rec;
 
       type Rec is record
          Value : Integer;
          Next : Rec_Ptr;
          Prev : access Rec;
       end record;
-
-      type Rec_Ptr is access all Rec;
-
 
       R : Rec;
       X : Integer;
@@ -120,7 +124,7 @@ package body A is
       X := Integer (42);
 
       X := Arr1 (8);
-      X := Arr2 (8, 12);
+      X := Arr2 (8, 9);
       X := Arr4 (7).X;
       X := Arr5.FArr (8);
 
@@ -144,8 +148,6 @@ package body A is
       Z : Integer;
 
       B : Boolean;
-
-      P : Parent;
    begin
       B := X in Y | Z;
       B := X not in SmallInt;
