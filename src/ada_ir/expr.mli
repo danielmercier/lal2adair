@@ -3,7 +3,6 @@ type t = {node: expr_node; orig_node: Libadalang.Expr.t; typ: Typ.t}
 and expr_node =
   | Const of const
   | Lval of lval
-  | Slice of lval * range
   | CallExpr of called_expr * t list
   | AccessOf of access_kind * lval
   | Cast of Typ.t * t
@@ -20,6 +19,7 @@ and lhost =
 and offset =
   | Field of fieldinfo * offset
   | Index of t list * offset
+  | Slice of range * offset
   | NoOffset
 
 and const = Int of Int_lit.t | String of string | Null | Enum of Enum.t
@@ -27,10 +27,13 @@ and const = Int of Int_lit.t | String of string | Null | Enum of Enum.t
 and range =
   | TypeExpr of (Typ.t * range_constraint option)
   | DoubleDot of t * t
+  | Range of range_prefix * int option
 
 and type_expr = Typ.t * type_constraint option
 
 and type_constraint = RangeConstraint of range_constraint
+
+and range_prefix = Type of Typ.t | Array of lval
 
 and range_constraint = t * t
 

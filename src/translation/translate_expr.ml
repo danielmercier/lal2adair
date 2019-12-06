@@ -369,24 +369,27 @@ and translate_array_index lval suffix =
         "Expect an AssocList with one element for a type cast, found %a"
         Utils.pp_node suffix
 
-and translate_array_slice lval suffix =
+and translate_array_slice (lhost, offset) suffix =
   (* Array slicing *)
-  match%nolazy suffix with
-  | `AssocList {list= [`ParamAssoc {f_r_expr}]} -> (
-    match (f_r_expr :> AdaNode.t) with
+  let slice =
+    match%nolazy suffix with
+    | `AssocList {list= [`ParamAssoc {f_r_expr}]} -> (
+      match (f_r_expr :> AdaNode.t) with
+      | #Lal_typ.range as range ->
+          Ada_ir.Expr.Slice (translate_range range, offset)
+      | _ ->
+          Utils.legality_error "Expect an range for an array slice, found %a"
+            Utils.pp_node f_r_expr )
     | #Lal_typ.range as range ->
-        Slice (lval, translate_range range)
+        (* All possibilities does not translate to an assoc list. For example,
+           a DiscreteSubtypeIndication is directly here instead of under an
+           assoc list *)
+        Slice (translate_range range, offset)
     | _ ->
         Utils.legality_error "Expect an range for an array slice, found %a"
-          Utils.pp_node f_r_expr )
-  | #Lal_typ.range as range ->
-      (* All possibilities does not translate to an assoc list. For example,
-         a DiscreteSubtypeIndication is directly here instead of under an
-         assoc list *)
-      Slice (lval, translate_range range)
-  | _ ->
-      Utils.legality_error "Expect an range for an array slice, found %a"
-        Utils.pp_node suffix
+          Utils.pp_node suffix
+  in
+  Lval (lhost, slice)
 
 and translate_range (range : Lal_typ.range) : Ada_ir.Expr.range =
   match%nolazy range with
@@ -405,6 +408,51 @@ and translate_range (range : Lal_typ.range) : Ada_ir.Expr.range =
   | #BinOp.t as binop ->
       Utils.legality_error "Expect double dot operator for a range, got %a"
         Utils.pp_node binop
+  | #AttributeRef.t as attribute_ref -> (
+    match Utils.attribute (AttributeRef.f_attribute attribute_ref) with
+    | `Range ->
+        let index_opt =
+          (* Compute the index of the range if there is one *)
+          match%nolazy AttributeRef.f_args attribute_ref with
+          | Some (`AssocList {list= [`ParamAssoc {f_r_expr}]}) ->
+              let index =
+                try Expr.p_eval_as_int f_r_expr
+                with _ ->
+                  Utils.legality_error "Expect a static expression, got %a"
+                    Utils.pp_node f_r_expr
+              in
+              Some index
+          | Some arg ->
+              Utils.legality_error
+                "Expect an AssocList with one element for a range attribute, \
+                 found %a"
+                Utils.pp_node arg
+          | None ->
+              None
+        in
+        let prefix = AttributeRef.f_prefix attribute_ref in
+        let range_prefix =
+          (* Compute the prefix of the range attribute *)
+          match try Name.p_name_designated_type prefix with _ -> None with
+          | Some typ ->
+              Ada_ir.Expr.Type typ
+          | None ->
+              (* We assume here that this is an array *)
+              let lval =
+                match lval_from_expr (translate_expr (prefix :> Expr.t)) with
+                | Some lval ->
+                    lval
+                | None ->
+                    Utils.legality_error
+                      "Expect an array for attribute range, found %a"
+                      Utils.pp_node prefix
+              in
+              Array lval
+        in
+        Range (range_prefix, index_opt)
+    | _ ->
+        Utils.legality_error "Expect range_attribute_ref for a range, got %a"
+          Utils.pp_node attribute_ref )
   | #DiscreteSubtypeIndication.t as type_expr -> (
     (* Explicit discrete subtype indication. We translate the underlying type
        expression and see if it's a range constraint *)

@@ -24,11 +24,16 @@ Test_Field:
 Test_Implicit_Deref_Field:
   <DottedName a.adb:83:12-83:43> = R.Next.all.Prev.all.Next.all.Next.all.Value
 Test_Array_Index:
-  <CallExpr a.adb:115:12-115:24> = Integer (42)
-  <CallExpr a.adb:117:12-117:20> = Arr1 [8]
-  <CallExpr a.adb:118:12-118:24> = Arr2 [8, 12]
-  <DottedName a.adb:119:12-119:22> = Arr4.all [7].X
-  <CallExpr a.adb:120:12-120:25> = Arr5.all.FArr [8]
-  <CallExpr a.adb:122:15-122:28> = Arr1 [1 .. 5]
-  <CallExpr a.adb:123:15-123:30> = Arr1 [SmallInt no range]
-  <CallExpr a.adb:124:15-124:42> = Arr1 [Integer range 1 .. 5]]
+  <CallExpr a.adb:120:12-120:24> = Integer (42)
+  <CallExpr a.adb:122:12-122:20> = Arr1 [8]
+  <CallExpr a.adb:123:12-123:24> = Arr2 [8, 12]
+  <DottedName a.adb:124:12-124:22> = Arr4.all [7].X
+  <CallExpr a.adb:125:12-125:25> = Arr5.all.FArr [8]
+  <CallExpr a.adb:127:15-127:28> = Arr1 [1 .. 5]
+  <CallExpr a.adb:128:15-128:30> = Arr1 [SmallInt no range]
+  <CallExpr a.adb:129:15-129:42> = Arr1 [Integer range 1 .. 5]
+  <CallExpr a.adb:130:15-130:36> = Arr1 [Type(SmallInt)'Range]
+  <CallExpr a.adb:131:15-131:32> = Arr1 [Array(Arr6)'Range]
+  <CallExpr a.adb:132:15-132:35> = Arr1 [Array(Arr2)'Range(1)]
+  <CallExpr a.adb:134:12-134:27> = Arr6 [3 .. 5] [3]
+  <CallExpr a.adb:136:12-136:32> = Arr7 [2 .. 4] [3].all [10]

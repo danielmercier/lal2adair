@@ -104,6 +104,10 @@ package body A is
 
       subtype ArrRec1_10 is ArrRec (1 .. 10);
 
+      type accessArr1_10 is access Arr1_10;
+
+      type ArrAccessArr is array (Integer range <>) of accessArr1_10;
+
       X : Integer;
       Arr1 : Arr (1 .. 10);
       Arr2 : Arr2D (1 .. 10, 1 .. 10);
@@ -111,6 +115,7 @@ package body A is
       Arr4 : access ArrRec1_10;
       Arr5 : access Rec2;
       Arr6 : Arr (1 .. 5);
+      Arr7 : ArrAccessArr (1 .. 10);
    begin
       X := Integer (42);
 
@@ -122,5 +127,12 @@ package body A is
       Arr6 := Arr1 (1 .. 5);
       Arr6 := Arr1 (SmallInt);
       Arr6 := Arr1 (Integer range 1 .. 5);
+      Arr6 := Arr1 (SmallInt'Range);
+      Arr6 := Arr1 (Arr6'Range);
+      Arr6 := Arr1 (Arr2'Range(1));
+
+      X := Arr6(3 .. 5)(3);
+
+      X := Arr7 (2 .. 4)(3)(10);
    end Test_Array_Index;
 end A;

@@ -21,7 +21,8 @@ type field_decl = [DiscriminantSpec.t | ComponentDecl.t]
 
 type call = [CallExpr.t | DottedName.t | Identifier.t | ExplicitDeref.t]
 
-type range = [identifier | BinOp.t | DiscreteSubtypeIndication.t]
+type range =
+  [identifier | BinOp.t | AttributeRef.t | DiscreteSubtypeIndication.t]
 
 type subprogram_decl =
   [BasicSubpDecl.t | GenericSubpInstantiation.t | GenericDecl.t]
