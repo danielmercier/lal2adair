@@ -37,3 +37,7 @@ Test_Array_Index:
   <CallExpr a.adb:132:15-132:35> = Arr1 [Array(Arr2)'Range(1)]
   <CallExpr a.adb:134:12-134:27> = Arr6 [3 .. 5] [3]
   <CallExpr a.adb:136:12-136:32> = Arr7 [2 .. 4] [3].all [10]
+Test_Membership_Expr:
+  <MembershipExpr a.adb:150:12-150:22> = X in Expr(Y) | Expr(Z)
+  <MembershipExpr a.adb:151:12-151:29> = X not in Type(SmallInt)
+  <MembershipExpr a.adb:152:12-152:31> = X in Range(Type(SmallInt)'Range)

@@ -135,4 +135,20 @@ package body A is
 
       X := Arr7 (2 .. 4)(3)(10);
    end Test_Array_Index;
+
+   procedure Test_Membership_Expr is
+      subtype SmallInt is Integer range 1 .. 5;
+
+      X : Integer;
+      Y : Integer;
+      Z : Integer;
+
+      B : Boolean;
+
+      P : Parent;
+   begin
+      B := X in Y | Z;
+      B := X not in SmallInt;
+      B := X in SmallInt'Range;
+   end Test_Membership_Expr;
 end A;

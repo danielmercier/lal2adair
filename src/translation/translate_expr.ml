@@ -88,8 +88,39 @@ and translate_unop (_unop : UnOp.t) = assert false
 
 and translate_binop (_binop : BinOp.t) = assert false
 
-and translate_membership_expr (_membership_expr : MembershipExpr.t) =
-  assert false
+and translate_membership_expr (membership_expr : MembershipExpr.t) :
+    Ada_ir.Expr.expr_node =
+  let translate_membership_choice expr =
+    match expr with
+    | #Lal_typ.identifier as ident -> (
+      match try Name.p_name_designated_type ident with _ -> None with
+      | Some typ ->
+          Ada_ir.Expr.ChoiceType typ
+      | None ->
+          (* a simple expression in this case *)
+          ChoiceExpr (translate_expr (ident :> Expr.t)) )
+    | #Lal_typ.range as range when Lal_typ.is_range range ->
+        ChoiceRange (translate_range range)
+    | _ ->
+        (* simply try to translate as a regular expression in this case *)
+        ChoiceExpr (translate_expr (expr :> Expr.t))
+  in
+  let prefix_expr =
+    translate_expr (MembershipExpr.f_expr membership_expr :> Expr.t)
+  in
+  let kind =
+    match MembershipExpr.f_op membership_expr with
+    | `OpIn _ ->
+        Ada_ir.Expr.In
+    | `OpNotIn _ ->
+        NotIn
+  in
+  let choices =
+    MembershipExpr.f_membership_exprs membership_expr
+    |> ExprAlternativesList.f_list
+    |> List.map ~f:translate_membership_choice
+  in
+  Membership (prefix_expr, kind, choices)
 
 and translate_base_aggregate (_base_aggregate : BaseAggregate.t) = assert false
 
