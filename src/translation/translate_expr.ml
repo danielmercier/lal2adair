@@ -375,32 +375,46 @@ and translate_array_slice (lhost, offset) suffix =
     match%nolazy suffix with
     | `AssocList {list= [`ParamAssoc {f_r_expr}]} -> (
       match (f_r_expr :> AdaNode.t) with
-      | #Lal_typ.range as range ->
-          Ada_ir.Expr.Slice (translate_range range, offset)
+      | #Lal_typ.discrete_range as range ->
+          Ada_ir.Expr.Slice (translate_discrete_range range, offset)
       | _ ->
           Utils.legality_error "Expect an range for an array slice, found %a"
             Utils.pp_node f_r_expr )
-    | #Lal_typ.range as range ->
+    | #Lal_typ.discrete_range as range ->
         (* All possibilities does not translate to an assoc list. For example,
            a DiscreteSubtypeIndication is directly here instead of under an
            assoc list *)
-        Slice (translate_range range, offset)
+        Slice (translate_discrete_range range, offset)
     | _ ->
         Utils.legality_error "Expect an range for an array slice, found %a"
           Utils.pp_node suffix
   in
   Lval (lhost, slice)
 
-and translate_range (range : Lal_typ.range) : Ada_ir.Expr.range =
+and translate_discrete_range (range : Lal_typ.discrete_range) :
+    Ada_ir.Expr.discrete_range =
   match%nolazy range with
   | #Lal_typ.identifier as ident -> (
     (* The only way to translate a range from an identifier, is if the
        identifier refers to a type *)
-    match Name.p_name_designated_type ident with
+    match try Name.p_name_designated_type ident with _ -> None with
     | Some typ ->
-        TypeExpr (typ, None)
+        DiscreteType (typ, None)
     | None ->
         Utils.legality_error "Expect a type for range %a" Utils.pp_node ident )
+  | #DiscreteSubtypeIndication.t as type_expr -> (
+    (* Explicit discrete subtype indication. We translate the underlying type
+       expression and see if it's a range constraint *)
+    match translate_type_expr (type_expr :> TypeExpr.t) with
+    | typ, Some (RangeConstraint (left, right)) ->
+        DiscreteType (typ, Some (left, right))
+    | typ, None ->
+        DiscreteType (typ, None) )
+  | #Lal_typ.range as range ->
+      DiscreteRange (translate_range range)
+
+and translate_range (range : Lal_typ.range) : Ada_ir.Expr.range =
+  match%nolazy range with
   | `BinOp {f_left; f_op= `OpDoubleDot _; f_right} ->
       (* DoubleDot here *)
       DoubleDot
@@ -453,14 +467,6 @@ and translate_range (range : Lal_typ.range) : Ada_ir.Expr.range =
     | _ ->
         Utils.legality_error "Expect range_attribute_ref for a range, got %a"
           Utils.pp_node attribute_ref )
-  | #DiscreteSubtypeIndication.t as type_expr -> (
-    (* Explicit discrete subtype indication. We translate the underlying type
-       expression and see if it's a range constraint *)
-    match translate_type_expr (type_expr :> TypeExpr.t) with
-    | typ, Some (RangeConstraint (left, right)) ->
-        TypeExpr (typ, Some (left, right))
-    | typ, None ->
-        TypeExpr (typ, None) )
 
 and translate_type_expr (type_expr : TypeExpr.t) : Ada_ir.Expr.type_expr =
   match TypeExpr.p_designated_type_decl type_expr with

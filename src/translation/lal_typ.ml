@@ -21,7 +21,9 @@ type field_decl = [DiscriminantSpec.t | ComponentDecl.t]
 
 type call = [CallExpr.t | DottedName.t | Identifier.t | ExplicitDeref.t]
 
-type range =
+type range = [BinOp.t | AttributeRef.t]
+
+type discrete_range =
   [identifier | BinOp.t | AttributeRef.t | DiscreteSubtypeIndication.t]
 
 type subprogram_decl =
@@ -137,3 +139,16 @@ let map_to_full_view ~default ~f typ =
 let is_access_type typ =
   map_to_full_view ~f:BaseTypeDecl.p_is_access_type ~default:false
     (typ :> BaseTypeDecl.t)
+
+let is_range range =
+  match%nolazy (range :> range) with
+  | `BinOp {f_op= `OpDoubleDot _} ->
+      true
+  | #BinOp.t ->
+      false
+  | #AttributeRef.t as attribute_ref -> (
+    match Utils.attribute (AttributeRef.f_attribute attribute_ref) with
+    | `Range ->
+        true
+    | _ ->
+        false )

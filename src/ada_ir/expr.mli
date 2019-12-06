@@ -5,6 +5,7 @@ and expr_node =
   | Lval of lval
   | CallExpr of called_expr * t list
   | AccessOf of access_kind * lval
+  | Membership of t * membership_kind * membership_choice list
   | Cast of Typ.t * t
 
 and lval = lhost * offset
@@ -19,23 +20,31 @@ and lhost =
 and offset =
   | Field of fieldinfo * offset
   | Index of t list * offset
-  | Slice of range * offset
+  | Slice of discrete_range * offset
   | NoOffset
 
 and const = Int of Int_lit.t | String of string | Null | Enum of Enum.t
 
-and range =
-  | TypeExpr of (Typ.t * range_constraint option)
-  | DoubleDot of t * t
-  | Range of range_prefix * int option
+and discrete_range =
+  | DiscreteType of Typ.t * range_constraint option
+  | DiscreteRange of range
+
+and range = DoubleDot of t * t | Range of range_prefix * int option
 
 and type_expr = Typ.t * type_constraint option
 
 and type_constraint = RangeConstraint of range_constraint
 
+and range_constraint = t * t
+
 and range_prefix = Type of Typ.t | Array of lval
 
-and range_constraint = t * t
+and membership_kind = In | NotIn
+
+and membership_choice =
+  | ChoiceExpr of t
+  | ChoiceRange of range
+  | ChoiceType of Typ.t
 
 and varinfo = {vname: Name.t}
 
