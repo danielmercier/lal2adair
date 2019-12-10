@@ -1,30 +1,23 @@
 type t = {node: expr_node; orig_node: Libadalang.Expr.t; typ: Typ.t}
 
 and expr_node =
+  | Name of name
   | Const of const
-  | Lval of lval
-  | CallExpr of called_expr * t list
-  | AccessOf of access_kind * lval
   | Membership of t * membership_kind * membership_choice list
+
+and name =
+  | Var of varinfo
+  | Enum of Enum.t
+  | Deref of name
+  | Index of name * t list
+  | Slice of name * discrete_range
+  | Field of name * fieldinfo
+  | AttributeRef of attribute_ref
   | Cast of Typ.t * t
+  | FunctionCall of function_name * t list
   | QualExpr of Typ.t * t
 
-and lval = lhost * offset
-
-and lhost =
-  | Var of varinfo
-  | CustomVar of custom_var
-  (* It is possible in Ada, to get the field after calling a function *)
-  | CallHost of called_expr * t list
-  | Mem of t
-
-and offset =
-  | Field of fieldinfo * offset
-  | Index of t list * offset
-  | Slice of discrete_range * offset
-  | NoOffset
-
-and const = Int of Int_lit.t | String of string | Null | Enum of Enum.t
+and const = Int of Int_lit.t | String of string | Null
 
 and discrete_range =
   | DiscreteType of Typ.t * range_constraint option
@@ -38,7 +31,7 @@ and type_constraint = RangeConstraint of range_constraint
 
 and range_constraint = t * t
 
-and range_prefix = Type of Typ.t | Array of lval
+and range_prefix = Type of Typ.t | Array of name
 
 and membership_kind = In | NotIn
 
@@ -47,19 +40,21 @@ and membership_choice =
   | ChoiceRange of range
   | ChoiceType of Typ.t
 
-and varinfo = {vname: Name.t}
-
-and custom_var = Undefined
+and varinfo = Source of {vname: Name.t} | Undefined
 
 and fieldinfo = {fieldname: Name.t}
 
-and called_expr = Cfun of funinfo | Pfun of t
+and function_name = Cfun of funinfo | Pfun of name
 
 and funinfo = {fname: Name.t}
 
+and attribute_ref =
+  | NameAccess of access_kind * name
+  | FunAccess of access_kind * funinfo
+
 and access_kind = Access | Unchecked_Access | Unrestriced_Access | Address
 
-val undefined : unit -> expr_node
-(** return a undefined expression *)
+val undefined : unit -> name
+(** return a undefined name *)
 
 val pp : Format.formatter -> t -> unit

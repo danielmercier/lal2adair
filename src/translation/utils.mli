@@ -21,7 +21,7 @@ val try_or_undefined :
 (** if the given function raise an exception, log a message and return a
     undefined expression *)
 
-val unimplemented : [< AdaNode.t] -> Ada_ir.Expr.expr_node
+val unimplemented : [< AdaNode.t] -> Ada_ir.Expr.name
 (** log a warning about not implemented node and return undefined *)
 
 val defining_name : [< Lal_typ.identifier] -> Ada_ir.Name.t

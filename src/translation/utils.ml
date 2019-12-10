@@ -22,7 +22,7 @@ let try_or_undefined property f node =
   with PropertyError s ->
     log_warning "Cannot evaluate %a, PropertyError on %s: %s" pp_node node
       property s ;
-    Ada_ir.Expr.undefined ()
+    Ada_ir.Expr.(Name (undefined ()))
 
 let defining_name name =
   match (name :> Name.t) with

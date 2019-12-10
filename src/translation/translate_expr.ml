@@ -1,19 +1,19 @@
 open Libadalang
 
 (** translate an expression to a lvalue checking for an implicit deref *)
-let lval_from_expr (expr : Ada_ir.Expr.t) : Ada_ir.Expr.lval option =
-  if Lal_typ.is_access_type expr.typ then
-    (* Implicit deref *)
-    Some (Mem expr, NoOffset)
-  else
-    match expr.node with
-    | Lval lval ->
-        Some lval
-    | CallExpr (called_expr, args) ->
-        (* If we try to access a field of a callexpr, create a CallHost *)
-        Some (CallHost (called_expr, args), NoOffset)
-    | _ ->
-        None
+let name_from_expr (check_implicit : bool) (expr : Ada_ir.Expr.t) :
+    Ada_ir.Expr.name option =
+  match expr.node with
+  | Name name ->
+      if check_implicit && Lal_typ.is_access_type expr.typ then
+        (* Implicit deref *)
+        Some (Deref name)
+      else Some name
+  | _ ->
+      None
+
+let funinfo (ident : Lal_typ.identifier) =
+  Ada_ir.Expr.{fname= Utils.defining_name ident}
 
 let rec translate_expr (expr : Expr.t) : Ada_ir.Expr.t =
   { node=
@@ -49,7 +49,7 @@ let rec translate_expr (expr : Expr.t) : Ada_ir.Expr.t =
   ; orig_node= expr
   ; typ= Translate_typ.translate_type_of_expr expr }
 
-and translate_lval (expr : Expr.t) =
+and translate_lval (expr : Expr.t) : Ada_ir.Expr.name =
   match expr with
   | #Lal_typ.identifier as ident when Lal_typ.is_variable ident ->
       translate_variable ident
@@ -61,22 +61,22 @@ and translate_lval (expr : Expr.t) =
 
 and translate_variable (var : Lal_typ.identifier) =
   let vname = Utils.defining_name var in
-  Ada_ir.Expr.(Var {vname}, NoOffset)
+  Ada_ir.Expr.Var (Source {vname})
 
 and translate_record_access (name : DottedName.t) =
   match DottedName.f_suffix name with
   | #Identifier.t as ident ->
       let prefix = translate_expr (DottedName.f_prefix name :> Expr.t) in
       let fieldname = Utils.defining_name ident in
-      let lhost, offset =
-        match lval_from_expr prefix with
+      let name =
+        match name_from_expr true prefix with
         | Some lval ->
             lval
         | None ->
             Utils.legality_error "Cannot access a field of a non lvalue: %a"
               Ada_ir.Expr.pp prefix
       in
-      (lhost, Field ({fieldname}, offset))
+      Field (name, {fieldname})
   | suffix ->
       (* For a record access, the only possible suffix is an identifier *)
       Utils.lal_error "Expecting an identifier for field, found %a"
@@ -127,22 +127,27 @@ and translate_base_aggregate (_base_aggregate : BaseAggregate.t) = assert false
 and translate_name (name : Name.t) : Ada_ir.Expr.expr_node =
   match name with
   | _ when Lal_typ.is_lvalue name ->
-      Ada_ir.Expr.Lval (translate_lval (name :> Expr.t))
+      Ada_ir.Expr.Name (translate_lval (name :> Expr.t))
   | #Lal_typ.literal as literal when Lal_typ.is_literal literal ->
       translate_literal literal
   | #Lal_typ.call as call when Lal_typ.is_call call ->
-      translate_call call
+      Name (translate_call call)
   | #AttributeRef.t as attribute_ref ->
-      translate_attribute_ref attribute_ref
-  | #ExplicitDeref.t as explicit_deref ->
+      Name (translate_attribute_ref attribute_ref)
+  | #ExplicitDeref.t as explicit_deref -> (
       let prefix = (ExplicitDeref.f_prefix explicit_deref :> Expr.t) in
       let prefix_expr = translate_expr prefix in
-      Lval (Mem prefix_expr, NoOffset)
+      match name_from_expr false prefix_expr with
+      | Some name ->
+          Name (Deref name)
+      | None ->
+          Utils.legality_error "Cannot deref a non lvalue: %a" Ada_ir.Expr.pp
+            prefix_expr )
   | #CallExpr.t as call_expr ->
       (* Should not be a call *)
-      translate_call_expr call_expr
+      Name (translate_call_expr call_expr)
   | #QualExpr.t as qual_expr ->
-      translate_qual_expr qual_expr
+      Name (translate_qual_expr qual_expr)
   | _ ->
       assert false
 
@@ -166,14 +171,14 @@ and translate_literal (literal : Lal_typ.literal) =
       Utils.try_or_undefined "Expr.p_eval_as_int"
         (fun n ->
           let name = AdaNode.text n in
-          Const
+          Name
             (Enum
                { Ada_ir.Enum.name= StdCharLiteral name
                ; pos= Ada_ir.Int_lit.of_int (Expr.p_eval_as_int n) }) )
         char_lit
   | #RealLiteral.t as real_literal ->
       (* Not implemented *)
-      Utils.unimplemented real_literal
+      Name (Utils.unimplemented real_literal)
   | #Lal_typ.identifier as ident ->
       (* Assume it denotes an enum. Otherwise, translate_literal should not
          have been called *)
@@ -181,14 +186,13 @@ and translate_literal (literal : Lal_typ.literal) =
       let name = Utils.defining_name ident in
       Utils.try_or_undefined "Expr.p_eval_as_int"
         (fun n ->
-          Const
+          Name
             (Enum
                { Ada_ir.Enum.name= EnumLiteral name
                ; pos= Ada_ir.Int_lit.of_int (Expr.p_eval_as_int n) }) )
         ident
 
 and translate_call (call : Lal_typ.call) =
-  let funinfo ident = Ada_ir.Expr.{fname= Utils.defining_name ident} in
   let add_self self subp_spec param_actuals =
     (* Assuming we are facing a dot call, add self to the param actuals with
        the good identifier *)
@@ -201,17 +205,27 @@ and translate_call (call : Lal_typ.call) =
           "%a should have at least one parameter for dot call" Utils.pp_node
           subp_spec
   in
+  let name_from_expr expr =
+    (* locally reimplement name_from_expr to return a name and raise a
+       legality rule *)
+    match name_from_expr false expr with
+    | Some name ->
+        name
+    | None ->
+        Utils.legality_error "Cannot deref a non lvalue: %a" Ada_ir.Expr.pp
+          expr
+  in
   match%nolazy call with
   | `DottedName {f_prefix} as ident when Name.p_is_dot_call call ->
       (* Call to const function with self as arg *)
       let subp_spec = Utils.referenced_subp_spec ident in
       let args = translate_args subp_spec (add_self f_prefix subp_spec []) in
-      Ada_ir.Expr.CallExpr (Cfun (funinfo ident), args)
+      Ada_ir.Expr.FunctionCall (Cfun (funinfo ident), args)
   | #Lal_typ.identifier as ident ->
       (* Call to const function with no args *)
       let subp_spec = Utils.referenced_subp_spec ident in
       let args = translate_args subp_spec [] in
-      Ada_ir.Expr.CallExpr (Cfun (funinfo ident), args)
+      FunctionCall (Cfun (funinfo ident), args)
   | `CallExpr
       {f_name= `DottedName {f_prefix} as ident; f_suffix= #AssocList.t as args}
     when Lal_typ.is_subprogram ident && Name.p_is_dot_call ident ->
@@ -221,7 +235,7 @@ and translate_call (call : Lal_typ.call) =
         add_self f_prefix subp_spec (AssocList.p_zip_with_params args)
       in
       let args = translate_args subp_spec param_actuals in
-      Ada_ir.Expr.CallExpr (Cfun (funinfo ident), args)
+      FunctionCall (Cfun (funinfo ident), args)
   | `CallExpr
       { f_name= (#Identifier.t | #DottedName.t) as ident
       ; f_suffix= #AssocList.t as args }
@@ -229,11 +243,11 @@ and translate_call (call : Lal_typ.call) =
       (* Const call with args *)
       let subp_spec = Utils.referenced_subp_spec ident in
       let args = translate_args subp_spec (AssocList.p_zip_with_params args) in
-      Ada_ir.Expr.CallExpr (Cfun (funinfo ident), args)
+      FunctionCall (Cfun (funinfo ident), args)
   | `ExplicitDeref {f_prefix} ->
       (* Call to non const function with no args *)
       let expr = translate_expr (f_prefix :> Expr.t) in
-      Ada_ir.Expr.CallExpr (Pfun expr, [])
+      FunctionCall (Pfun (name_from_expr expr), [])
   | `CallExpr
       { f_name= `ExplicitDeref {f_prefix= called} | called
       ; f_suffix= #AssocList.t as args } ->
@@ -242,7 +256,7 @@ and translate_call (call : Lal_typ.call) =
       let subp_spec = Utils.accessed_subp_spec called in
       let expr = translate_expr (called :> Expr.t) in
       let args = translate_args subp_spec (AssocList.p_zip_with_params args) in
-      Ada_ir.Expr.CallExpr (Pfun expr, args)
+      FunctionCall (Pfun (name_from_expr expr), args)
   | `CallExpr {f_suffix} ->
       Utils.legality_error "Args should be an AssocList, found %a"
         Utils.pp_node f_suffix
@@ -342,14 +356,24 @@ and translate_attribute_ref (attribute_ref : AttributeRef.t) =
         | `Address ->
             Address
       in
-      let accessed =
-        translate_lval (AttributeRef.f_prefix attribute_ref :> Expr.t)
+      let attribute_ref =
+        match AttributeRef.f_prefix attribute_ref with
+        | #Lal_typ.identifier as ident when Lal_typ.is_subprogram ident ->
+            Ada_ir.Expr.FunAccess (access_kind, funinfo ident)
+        | expr -> (
+            let expr = translate_expr (expr :> Expr.t) in
+            match name_from_expr false expr with
+            | Some name ->
+                NameAccess (access_kind, name)
+            | None ->
+                Utils.legality_error "Expected a name for a 'Access, got %a"
+                  Ada_ir.Expr.pp expr )
       in
-      Ada_ir.Expr.AccessOf (access_kind, accessed)
+      Ada_ir.Expr.AttributeRef attribute_ref
   | _ ->
       Utils.unimplemented attribute_ref
 
-and translate_call_expr (call_expr : CallExpr.t) : Ada_ir.Expr.expr_node =
+and translate_call_expr (call_expr : CallExpr.t) : Ada_ir.Expr.name =
   (* Handle call expr other than subprogram call *)
   let name = CallExpr.f_name call_expr in
   match try Name.p_name_designated_type name with _ -> None with
@@ -367,24 +391,23 @@ and translate_call_expr (call_expr : CallExpr.t) : Ada_ir.Expr.expr_node =
       (* Either an index access or a slice, in each case, we can translate
          the name as an expression *)
       let name_expr = translate_expr (name :> Expr.t) in
-      let lval =
-        match lval_from_expr name_expr with
-        | Some lval ->
-            lval
+      let name =
+        match name_from_expr true name_expr with
+        | Some name ->
+            name
         | None ->
             Utils.legality_error "Cannot access an index of a non lvalue: %a"
               Ada_ir.Expr.pp name_expr
       in
       let suffix = CallExpr.f_suffix call_expr in
       if CallExpr.p_is_array_slice call_expr then
-        translate_array_slice lval suffix
-      else translate_array_index lval suffix
+        translate_array_slice name suffix
+      else translate_array_index name suffix
 
-and translate_array_index lval suffix =
+and translate_array_index name suffix =
   (* Regular array access *)
   match%nolazy suffix with
   | `AssocList {list= assoc_list} ->
-      let lhost, offset = lval in
       (* translate each index *)
       let translate_assoc =
         function%nolazy
@@ -396,33 +419,30 @@ and translate_array_index lval suffix =
               Utils.pp_node assoc
       in
       let index = List.map ~f:translate_assoc assoc_list in
-      Lval (lhost, Index (index, offset))
+      Index (name, index)
   | _ ->
       Utils.legality_error
         "Expect an AssocList with one element for a type cast, found %a"
         Utils.pp_node suffix
 
-and translate_array_slice (lhost, offset) suffix =
+and translate_array_slice name suffix =
   (* Array slicing *)
-  let slice =
-    match%nolazy suffix with
-    | `AssocList {list= [`ParamAssoc {f_r_expr}]} -> (
-      match (f_r_expr :> AdaNode.t) with
-      | #Lal_typ.discrete_range as range ->
-          Ada_ir.Expr.Slice (translate_discrete_range range, offset)
-      | _ ->
-          Utils.legality_error "Expect an range for an array slice, found %a"
-            Utils.pp_node f_r_expr )
+  match%nolazy suffix with
+  | `AssocList {list= [`ParamAssoc {f_r_expr}]} -> (
+    match (f_r_expr :> AdaNode.t) with
     | #Lal_typ.discrete_range as range ->
-        (* All possibilities does not translate to an assoc list. For example,
-           a DiscreteSubtypeIndication is directly here instead of under an
-           assoc list *)
-        Slice (translate_discrete_range range, offset)
+        Ada_ir.Expr.Slice (name, translate_discrete_range range)
     | _ ->
         Utils.legality_error "Expect an range for an array slice, found %a"
-          Utils.pp_node suffix
-  in
-  Lval (lhost, slice)
+          Utils.pp_node f_r_expr )
+  | #Lal_typ.discrete_range as range ->
+      (* All possibilities does not translate to an assoc list. For example,
+         a DiscreteSubtypeIndication is directly here instead of under an
+         assoc list *)
+      Slice (name, translate_discrete_range range)
+  | _ ->
+      Utils.legality_error "Expect an range for an array slice, found %a"
+        Utils.pp_node suffix
 
 and translate_discrete_range (range : Lal_typ.discrete_range) :
     Ada_ir.Expr.discrete_range =
@@ -486,7 +506,9 @@ and translate_range (range : Lal_typ.range) : Ada_ir.Expr.range =
           | None ->
               (* We assume here that this is an array *)
               let lval =
-                match lval_from_expr (translate_expr (prefix :> Expr.t)) with
+                match
+                  name_from_expr true (translate_expr (prefix :> Expr.t))
+                with
                 | Some lval ->
                     lval
                 | None ->
@@ -525,7 +547,7 @@ and translate_type_expr (type_expr : TypeExpr.t) : Ada_ir.Expr.type_expr =
       Utils.lal_error "Cannot find designated type for %a" Utils.pp_node
         type_expr
 
-and translate_qual_expr (qual_expr : QualExpr.t) : Ada_ir.Expr.expr_node =
+and translate_qual_expr (qual_expr : QualExpr.t) : Ada_ir.Expr.name =
   let prefix = QualExpr.f_prefix qual_expr in
   let subtype_mark =
     match try Name.p_name_designated_type prefix with _ -> None with
