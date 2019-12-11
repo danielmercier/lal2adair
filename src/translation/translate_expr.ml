@@ -141,7 +141,7 @@ and translate_name (name : Name.t) : Ada_ir.Expr.expr_node =
   | #QualExpr.t as qual_expr ->
       Name (translate_qual_expr qual_expr)
   | _ ->
-      assert false
+      Utils.legality_error "Unexpected %a" Utils.pp_node name
 
 and translate_literal (literal : Lal_typ.literal) =
   let open Ada_ir.Expr in
