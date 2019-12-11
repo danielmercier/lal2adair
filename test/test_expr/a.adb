@@ -183,4 +183,17 @@ package body A is
       X := raise Program_Error;
       X := raise A;
    end Test_Raise_Expression;
+
+   procedure Test_Op is
+      X, Y : MyInt;
+      B : Boolean;
+   begin
+      X := X & Y;
+      X := X + Y;
+      X := -X;
+      X := +X;
+      X := abs X;
+
+      B := X = 10 and then Y > 10;
+   end Test_Op;
 end A;

@@ -79,9 +79,82 @@ and translate_record_access (name : DottedName.t) : Ada_ir.Expr.name =
 
 and translate_contract_cases (_contract_cases : ContractCases.t) = assert false
 
-and translate_unop (_unop : UnOp.t) = assert false
+and translate_unop (unop : UnOp.t) =
+  (* First check if there is a user defined operator *)
+  let op = UnOp.f_op unop in
+  let expr = translate_expr (UnOp.f_expr unop :> Expr.t) in
+  match try Name.p_referenced_decl op with _ -> None with
+  | Some _ ->
+      let subp_spec = Utils.referenced_subp_spec op in
+      Name (FunctionCall (Cfun (funinfo subp_spec), [expr]))
+  | None ->
+      let operator =
+        match op with
+        | #OpAbs.t ->
+            Ada_ir.Expr.Abs
+        | #OpNot.t ->
+            Not
+        | #OpMinus.t ->
+            UnaryMinus
+        | #OpPlus.t ->
+            UnaryPlus
+      in
+      Unop (operator, expr)
 
-and translate_binop (_binop : BinOp.t) = assert false
+and translate_binop (binop : BinOp.t) =
+  let op = BinOp.f_op binop in
+  let lexpr = translate_expr (BinOp.f_left binop :> Expr.t) in
+  let rexpr = translate_expr (BinOp.f_right binop :> Expr.t) in
+  match try Name.p_referenced_decl op with _ -> None with
+  | Some _ ->
+      let subp_spec = Utils.referenced_subp_spec op in
+      Name (FunctionCall (Cfun (funinfo subp_spec), [lexpr; rexpr]))
+  | None ->
+      let operator =
+        match op with
+        | #OpAnd.t ->
+            Ada_ir.Expr.And
+        | #OpOr.t ->
+            Or
+        | #OpOrElse.t ->
+            OrElse
+        | #OpAndThen.t ->
+            AndThen
+        | #OpXor.t ->
+            Xor
+        | #OpPow.t ->
+            Pow
+        | #OpMult.t ->
+            Mult
+        | #OpDiv.t ->
+            Div
+        | #OpMod.t ->
+            Mod
+        | #OpRem.t ->
+            Rem
+        | #OpPlus.t ->
+            Plus
+        | #OpMinus.t ->
+            Minus
+        | #OpConcat.t ->
+            Concat
+        | #OpEq.t ->
+            Eq
+        | #OpNeq.t ->
+            Neq
+        | #OpLt.t ->
+            Lt
+        | #OpLte.t ->
+            Lte
+        | #OpGt.t ->
+            Gt
+        | #OpGte.t ->
+            Gte
+        | _ ->
+            Utils.legality_error "Unexpected binary operator %a" Utils.pp_node
+              op
+      in
+      Binop (operator, lexpr, rexpr)
 
 and translate_membership_expr (membership_expr : MembershipExpr.t) :
     Ada_ir.Expr.expr_node =

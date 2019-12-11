@@ -5,6 +5,8 @@ and expr_node =
   | Const of const
   | Membership of t * membership_kind * membership_choice list
   | Raise of Name.t * t option
+  | Unop of unop * t
+  | Binop of binop * t * t
 
 and name =
   | Var of varinfo
@@ -54,6 +56,29 @@ and attribute_ref =
   | FunAccess of access_kind * funinfo
 
 and access_kind = Access | Unchecked_Access | Unrestriced_Access | Address
+
+and unop = Abs | Not | UnaryMinus | UnaryPlus
+
+and binop =
+  | And
+  | Or
+  | OrElse
+  | AndThen
+  | Xor
+  | Pow
+  | Mult
+  | Div
+  | Mod
+  | Rem
+  | Plus
+  | Minus
+  | Concat
+  | Eq
+  | Neq
+  | Lt
+  | Lte
+  | Gt
+  | Gte
 
 val undefined : unit -> name
 (** return a undefined name *)

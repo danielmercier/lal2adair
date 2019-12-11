@@ -52,3 +52,10 @@ Test_Operator_Symbol:
 Test_Raise_Expression:
   <RaiseExpr a.adb:183:12-183:31> = raise Program_Error
   <RaiseExpr a.adb:184:12-184:19> = raise A
+Test_Op:
+  <BinOp a.adb:191:12-191:17> = "&" (X, Y)
+  <BinOp a.adb:192:12-192:17> = X + Y
+  <UnOp a.adb:193:12-193:14> = -X
+  <UnOp a.adb:194:12-194:14> = +X
+  <UnOp a.adb:195:12-195:17> = abs X
+  <BinOp a.adb:197:12-197:34> = X = 10 and then Y > 10
