@@ -7,6 +7,8 @@ and expr_node =
   | Raise of Name.t * t option
   | Unop of unop * t
   | Binop of binop * t * t
+  | RecordAggregate of record_aggregate
+  | NullRecordAggregate
 
 and name =
   | Var of varinfo
@@ -79,6 +81,12 @@ and binop =
   | Lte
   | Gt
   | Gte
+
+and record_aggregate = record_association list
+
+and record_association = {field: fieldinfo; expr: aggregate_expr}
+
+and aggregate_expr = Expr of t | Default
 
 val undefined : unit -> name
 (** return a undefined name *)

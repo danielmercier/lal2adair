@@ -59,3 +59,6 @@ Test_Op:
   <UnOp a.adb:194:12-194:14> = +X
   <UnOp a.adb:195:12-195:17> = abs X
   <BinOp a.adb:197:12-197:34> = X = 10 and then Y > 10
+Test_Record_Aggregate:
+  <Aggregate a.adb:208:12-208:36> = (X => 42, Y => 42, B => True)
+  <Aggregate a.adb:209:12-209:34> = (X => 42, Y => 42, B => <>)

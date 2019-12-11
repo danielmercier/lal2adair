@@ -20,6 +20,9 @@ let funinfo (spec : BaseSubpSpec.t) =
       Utils.lal_error "Cannot find name for subprogram spec %a" Utils.pp_node
         spec
 
+let fieldinfo (ident : Lal_typ.identifier) : Ada_ir.Expr.fieldinfo =
+  {fieldname= Utils.defining_name ident}
+
 let rec translate_expr (expr : Expr.t) : Ada_ir.Expr.t =
   { node=
       ( match%nolazy expr with
@@ -62,7 +65,6 @@ and translate_record_access (name : DottedName.t) : Ada_ir.Expr.name =
   match DottedName.f_suffix name with
   | #Identifier.t as ident ->
       let prefix = translate_expr (DottedName.f_prefix name :> Expr.t) in
-      let fieldname = Utils.defining_name ident in
       let name =
         match name_from_expr true prefix with
         | Some lval ->
@@ -71,7 +73,7 @@ and translate_record_access (name : DottedName.t) : Ada_ir.Expr.name =
             Utils.legality_error "Cannot access a field of a non lvalue: %a"
               Ada_ir.Expr.pp prefix
       in
-      Field (name, {fieldname})
+      Field (name, fieldinfo ident)
   | suffix ->
       (* For a record access, the only possible suffix is an identifier *)
       Utils.lal_error "Expecting an identifier for field, found %a"
@@ -190,7 +192,46 @@ and translate_membership_expr (membership_expr : MembershipExpr.t) :
   in
   Membership (prefix_expr, kind, choices)
 
-and translate_base_aggregate (_base_aggregate : BaseAggregate.t) = assert false
+and translate_base_aggregate (base_aggregate : BaseAggregate.t) =
+  match%nolazy base_aggregate with
+  | #NullRecordAggregate.t ->
+      Ada_ir.Expr.NullRecordAggregate
+  | `Aggregate {f_assocs= Some assoc_list} ->
+      let typ = Translate_typ.translate_type_of_expr base_aggregate in
+      if BaseTypeDecl.p_is_record_type typ then
+        translate_record_aggregate assoc_list
+      else if BaseTypeDecl.p_is_array_type typ then
+        translate_array_aggregate assoc_list
+      else
+        Utils.legality_error
+          "Expecting an array or record type for aggregate %a" Utils.pp_node
+          base_aggregate
+  | _ ->
+      Utils.legality_error "Expecting an assoc list for aggregate %a"
+        Utils.pp_node base_aggregate
+
+and translate_record_aggregate (assoc_list : AssocList.t) =
+  let record_association {ParamActual.param; actual} =
+    match (param, actual) with
+    | Some param, Some actual ->
+        let field = {Ada_ir.Expr.fieldname= param} in
+        let expr =
+          match actual with
+          | #BoxExpr.t ->
+              Ada_ir.Expr.Default
+          | _ ->
+              Expr (translate_expr actual)
+        in
+        {Ada_ir.Expr.field; expr}
+    | _ ->
+        Utils.lal_error "Cannot find a param or actual for %a" Utils.pp_node
+          assoc_list
+  in
+  let assoc_with_params = AssocList.p_zip_with_params assoc_list in
+  Ada_ir.Expr.RecordAggregate
+    (List.map ~f:record_association assoc_with_params)
+
+and translate_array_aggregate (_assoc_list : AssocList.t) = assert false
 
 and translate_name (name : Name.t) : Ada_ir.Expr.expr_node =
   match name with

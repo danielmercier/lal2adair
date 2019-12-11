@@ -7,6 +7,8 @@ and expr_node =
   | Raise of Name.t * t option
   | Unop of unop * t
   | Binop of binop * t * t
+  | RecordAggregate of record_aggregate
+  | NullRecordAggregate
 
 and name =
   | Var of varinfo
@@ -79,6 +81,12 @@ and binop =
   | Lte
   | Gt
   | Gte
+
+and record_aggregate = record_association list
+
+and record_association = {field: fieldinfo; expr: aggregate_expr}
+
+and aggregate_expr = Expr of t | Default
 
 let undefined () = Var Undefined
 
@@ -240,6 +248,19 @@ let rec pp fmt {node} =
     in
     Format.pp_print_string fmt str
   in
+  let pp_record_aggregate fmt record_aggregate =
+    let pp_sep fmt () = Format.fprintf fmt ",@ " in
+    let pp_record_association fmt {field; expr} =
+      match expr with
+      | Expr e ->
+          Format.fprintf fmt "@[%a => %a@]" Name.pp field.fieldname pp e
+      | Default ->
+          Format.fprintf fmt "@[%a => <>@]" Name.pp field.fieldname
+    in
+    Format.fprintf fmt "(@[%a@])"
+      (Format.pp_print_list ~pp_sep pp_record_association)
+      record_aggregate
+  in
   match node with
   | Const const ->
       Format.fprintf fmt "@[%a@]" pp_const const
@@ -267,3 +288,7 @@ let rec pp fmt {node} =
       Format.fprintf fmt "@[%a%a@]" pp_unop op pp expr
   | Binop (op, lexpr, rexpr) ->
       Format.fprintf fmt "@[%a %a %a@]" pp lexpr pp_binop op pp rexpr
+  | RecordAggregate record_aggregate ->
+      Format.fprintf fmt "@[%a@]" pp_record_aggregate record_aggregate
+  | NullRecordAggregate ->
+      Format.fprintf fmt "@[(null record)@]"

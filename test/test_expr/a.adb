@@ -196,4 +196,16 @@ package body A is
 
       B := X = 10 and then Y > 10;
    end Test_Op;
+
+   procedure Test_Record_Aggregate is
+      type Rec is record
+         X, Y : Integer;
+         B : Boolean;
+      end record;
+
+      R : Rec;
+   begin
+      R := (X | Y => 42, B => True);
+      R := (X | Y => 42, B => <>);
+   end Test_Record_Aggregate;
 end A;
