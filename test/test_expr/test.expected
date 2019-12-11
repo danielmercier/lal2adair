@@ -49,3 +49,6 @@ Test_Qualified_Expr:
   
 Test_Operator_Symbol:
   <CallExpr a.adb:175:12-175:22> = "&" (X, Y)
+Test_Raise_Expression:
+  <RaiseExpr a.adb:183:12-183:31> = raise Program_Error
+  <RaiseExpr a.adb:184:12-184:19> = raise A

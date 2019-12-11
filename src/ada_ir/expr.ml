@@ -4,6 +4,7 @@ and expr_node =
   | Name of name
   | Const of const
   | Membership of t * membership_kind * membership_choice list
+  | Raise of Name.t * t option
 
 and name =
   | Var of varinfo
@@ -170,3 +171,12 @@ let rec pp fmt {node} =
       in
       Format.fprintf fmt "@[%a %a %a@]" pp expr pp_kind kind
         pp_membership_choices choices
+  | Raise (name, msg) ->
+      let pp_msg fmt msg =
+        match msg with
+        | Some msg ->
+            Format.fprintf fmt " with %a" pp msg
+        | None ->
+            ()
+      in
+      Format.fprintf fmt "@[raise %a%a@]" Name.pp name pp_msg msg

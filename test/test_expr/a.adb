@@ -174,4 +174,13 @@ package body A is
    begin
       X := "&" (X, Y);
    end Test_Operator_Symbol;
+
+   procedure Test_Raise_Expression is
+      A : exception;
+
+      X : Integer;
+   begin
+      X := raise Program_Error;
+      X := raise A;
+   end Test_Raise_Expression;
 end A;

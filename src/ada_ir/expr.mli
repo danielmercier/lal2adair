@@ -4,6 +4,7 @@ and expr_node =
   | Name of name
   | Const of const
   | Membership of t * membership_kind * membership_choice list
+  | Raise of Name.t * t option
 
 and name =
   | Var of varinfo

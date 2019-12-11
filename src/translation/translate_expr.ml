@@ -567,6 +567,24 @@ and translate_quantified_expr (_quantified_expr : QuantifiedExpr.t) =
 
 and translate_allocator (_allocator : Allocator.t) = assert false
 
-and translate_raise_expr (_raise_expr : RaiseExpr.t) = assert false
+and translate_raise_expr (raise_expr : RaiseExpr.t) =
+  let name =
+    match RaiseExpr.f_exception_name raise_expr with
+    | Some (#Lal_typ.identifier as ident) ->
+        Utils.defining_name ident
+    | Some expr ->
+        Utils.legality_error
+          "Expected an identifier for the exception name, found %a"
+          Utils.pp_node expr
+    | None ->
+        Utils.legality_error "No identifier given for exception expression"
+          Utils.pp_node raise_expr
+  in
+  let msg =
+    Option.map
+      ~f:(fun e -> translate_expr (e :> Expr.t))
+      (RaiseExpr.f_error_message raise_expr)
+  in
+  Ada_ir.Expr.Raise (name, msg)
 
 let translate_expr (expr : [< Expr.t]) = translate_expr (expr :> Expr.t)
