@@ -49,21 +49,11 @@ let rec translate_expr (expr : Expr.t) : Ada_ir.Expr.t =
   ; orig_node= expr
   ; typ= Translate_typ.translate_type_of_expr expr }
 
-and translate_lval (expr : Expr.t) : Ada_ir.Expr.name =
-  match expr with
-  | #Lal_typ.identifier as ident when Lal_typ.is_variable ident ->
-      translate_variable ident
-  | #DottedName.t as dotted_name when Lal_typ.is_record_access dotted_name ->
-      translate_record_access dotted_name
-  | _ ->
-      Utils.legality_error "Cannot translate %a as an lvalue" Utils.pp_node
-        expr
-
 and translate_variable (var : Lal_typ.identifier) =
   let vname = Utils.defining_name var in
   Ada_ir.Expr.Var (Source {vname})
 
-and translate_record_access (name : DottedName.t) =
+and translate_record_access (name : DottedName.t) : Ada_ir.Expr.name =
   match DottedName.f_suffix name with
   | #Identifier.t as ident ->
       let prefix = translate_expr (DottedName.f_prefix name :> Expr.t) in
@@ -126,8 +116,10 @@ and translate_base_aggregate (_base_aggregate : BaseAggregate.t) = assert false
 
 and translate_name (name : Name.t) : Ada_ir.Expr.expr_node =
   match name with
-  | _ when Lal_typ.is_lvalue name ->
-      Ada_ir.Expr.Name (translate_lval (name :> Expr.t))
+  | #Lal_typ.identifier as ident when Lal_typ.is_variable ident ->
+      Name (translate_variable ident)
+  | #DottedName.t as dotted_name when Lal_typ.is_record_access dotted_name ->
+      Name (translate_record_access dotted_name)
   | #Lal_typ.literal as literal when Lal_typ.is_literal literal ->
       translate_literal literal
   | #Lal_typ.call as call when Lal_typ.is_call call ->
