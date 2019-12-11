@@ -237,8 +237,7 @@ and translate_call (call : Lal_typ.call) =
       let args = translate_args subp_spec param_actuals in
       FunctionCall (Cfun (funinfo ident), args)
   | `CallExpr
-      { f_name= (#Identifier.t | #DottedName.t) as ident
-      ; f_suffix= #AssocList.t as args }
+      {f_name= #Lal_typ.identifier as ident; f_suffix= #AssocList.t as args}
     when Lal_typ.is_subprogram ident ->
       (* Const call with args *)
       let subp_spec = Utils.referenced_subp_spec ident in

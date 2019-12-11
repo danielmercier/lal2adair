@@ -1,6 +1,6 @@
 open Libadalang
 
-type identifier = [DottedName.t | Identifier.t]
+type identifier = [DottedName.t | Identifier.t | StringLiteral.t]
 
 type literal =
   [ IntLiteral.t
@@ -19,7 +19,7 @@ type variable_decl =
 
 type field_decl = [DiscriminantSpec.t | ComponentDecl.t]
 
-type call = [CallExpr.t | DottedName.t | Identifier.t | ExplicitDeref.t]
+type call = [identifier | CallExpr.t | ExplicitDeref.t]
 
 type range = [BinOp.t | AttributeRef.t]
 
@@ -27,7 +27,11 @@ type discrete_range =
   [identifier | BinOp.t | AttributeRef.t | DiscreteSubtypeIndication.t]
 
 type subprogram_decl =
-  [BasicSubpDecl.t | GenericSubpInstantiation.t | GenericDecl.t]
+  [ BasicSubpDecl.t
+  | BaseSubpBody.t
+  | GenericSubpInstantiation.t
+  | GenericSubpDecl.t
+  | SubpBodyStub.t ]
 
 let map_property ~f ~default value =
   try f value

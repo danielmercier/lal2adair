@@ -161,4 +161,17 @@ package body A is
    begin
       X := SmallInt'(1);
    end Test_Qualified_Expr;
+
+   type MyInt is new Integer;
+
+   function "&" (X, Y : MyInt) return MyInt is
+   begin
+      return X * 10 + Y;
+   end "&";
+
+   procedure Test_Operator_Symbol is
+      X, Y : MyInt := 42;
+   begin
+      X := "&" (X, Y);
+   end Test_Operator_Symbol;
 end A;

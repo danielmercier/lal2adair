@@ -45,3 +45,7 @@ Test_Membership_Expr:
   <MembershipExpr a.adb:154:12-154:31> = X in Range(Type(SmallInt)'Range)
 Test_Qualified_Expr:
   <QualExpr a.adb:162:12-162:24> = SmallInt'(1)
+"&":
+  
+Test_Operator_Symbol:
+  <CallExpr a.adb:175:12-175:22> = "&" (X, Y)

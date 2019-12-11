@@ -1,6 +1,8 @@
 open Libadalang
 
-type identifier = [DottedName.t | Identifier.t]
+(** StringLiteral is part of an identifier because it can refer to an
+    symbol operator *)
+type identifier = [DottedName.t | Identifier.t | StringLiteral.t]
 
 type literal =
   [ IntLiteral.t
@@ -10,7 +12,7 @@ type literal =
   | RealLiteral.t
   | identifier ]
 
-type call = [CallExpr.t | DottedName.t | Identifier.t | ExplicitDeref.t]
+type call = [identifier | CallExpr.t | ExplicitDeref.t]
 
 type range = [BinOp.t | AttributeRef.t]
 

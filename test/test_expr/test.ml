@@ -28,4 +28,4 @@ let pp_subp fmt subp =
 
 let () =
   AdaNode.findall SubpBody root
-  |> Format.printf "%a@." (Format.pp_print_list pp_subp)
+  |> Format.printf "@[<v>%a@]@." (Format.pp_print_list pp_subp)
