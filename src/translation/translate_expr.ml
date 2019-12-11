@@ -12,8 +12,13 @@ let name_from_expr (check_implicit : bool) (expr : Ada_ir.Expr.t) :
   | _ ->
       None
 
-let funinfo (ident : Lal_typ.identifier) =
-  Ada_ir.Expr.{fname= Utils.defining_name ident}
+let funinfo (spec : BaseSubpSpec.t) =
+  match%nolazy spec with
+  | `SubpSpec {f_subp_name= Some fname} ->
+      Ada_ir.Expr.{fname}
+  | _ ->
+      Utils.lal_error "Cannot find name for subprogram spec %a" Utils.pp_node
+        spec
 
 let rec translate_expr (expr : Expr.t) : Ada_ir.Expr.t =
   { node=
@@ -212,12 +217,12 @@ and translate_call (call : Lal_typ.call) =
       (* Call to const function with self as arg *)
       let subp_spec = Utils.referenced_subp_spec ident in
       let args = translate_args subp_spec (add_self f_prefix subp_spec []) in
-      Ada_ir.Expr.FunctionCall (Cfun (funinfo ident), args)
+      Ada_ir.Expr.FunctionCall (Cfun (funinfo subp_spec), args)
   | #Lal_typ.identifier as ident ->
       (* Call to const function with no args *)
       let subp_spec = Utils.referenced_subp_spec ident in
       let args = translate_args subp_spec [] in
-      FunctionCall (Cfun (funinfo ident), args)
+      FunctionCall (Cfun (funinfo subp_spec), args)
   | `CallExpr
       {f_name= `DottedName {f_prefix} as ident; f_suffix= #AssocList.t as args}
     when Lal_typ.is_subprogram ident && Name.p_is_dot_call ident ->
@@ -227,14 +232,14 @@ and translate_call (call : Lal_typ.call) =
         add_self f_prefix subp_spec (AssocList.p_zip_with_params args)
       in
       let args = translate_args subp_spec param_actuals in
-      FunctionCall (Cfun (funinfo ident), args)
+      FunctionCall (Cfun (funinfo subp_spec), args)
   | `CallExpr
       {f_name= #Lal_typ.identifier as ident; f_suffix= #AssocList.t as args}
     when Lal_typ.is_subprogram ident ->
       (* Const call with args *)
       let subp_spec = Utils.referenced_subp_spec ident in
       let args = translate_args subp_spec (AssocList.p_zip_with_params args) in
-      FunctionCall (Cfun (funinfo ident), args)
+      FunctionCall (Cfun (funinfo subp_spec), args)
   | `ExplicitDeref {f_prefix} ->
       (* Call to non const function with no args *)
       let expr = translate_expr (f_prefix :> Expr.t) in
@@ -350,7 +355,8 @@ and translate_attribute_ref (attribute_ref : AttributeRef.t) =
       let attribute_ref =
         match AttributeRef.f_prefix attribute_ref with
         | #Lal_typ.identifier as ident when Lal_typ.is_subprogram ident ->
-            Ada_ir.Expr.FunAccess (access_kind, funinfo ident)
+            let subp_spec = Utils.referenced_subp_spec ident in
+            Ada_ir.Expr.FunAccess (access_kind, funinfo subp_spec)
         | expr -> (
             let expr = translate_expr (expr :> Expr.t) in
             match name_from_expr false expr with
