@@ -78,3 +78,13 @@ Test_Case_Expression:
                                       when Int1_5 no range => 42,
                                       when 12 | 21 => 35,
                                       when others => 31
+Test_Quantified:
+  <ParenExpr a.adb:259:12-259:49> = (for some I in Array(A)'Range =>
+                                       A [I] = 42)
+  <ParenExpr a.adb:260:12-260:48> = (for all I in Array(A)'Range =>
+                                       A [I] = 42)
+  <ParenExpr a.adb:261:12-261:49> = (for some I in 1 .. 10 => A [I] = 42)
+  <ParenExpr a.adb:262:12-262:48> = (for all I in Integer no range =>
+                                       A [I] = 42)
+  <ParenExpr a.adb:263:12-263:43> = (for some I of A => A [I] = 42)
+  <ParenExpr a.adb:264:12-264:38> = (for all E of A => E = 42)

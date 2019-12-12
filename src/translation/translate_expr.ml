@@ -810,8 +810,63 @@ and translate_case_expr_alternative
     (_case_expr_alternative : CaseExprAlternative.t) =
   assert false
 
-and translate_quantified_expr (_quantified_expr : QuantifiedExpr.t) =
-  assert false
+and translate_quantified_expr (quantified_expr : QuantifiedExpr.t) =
+  let quantifier =
+    match QuantifiedExpr.f_quantifier quantified_expr with
+    | #QuantifierAll.t ->
+        Ada_ir.Expr.ForAll
+    | #QuantifierSome.t ->
+        Exists
+  in
+  let iterator_spec =
+    translate_iterator_specification
+      (QuantifiedExpr.f_loop_spec quantified_expr)
+  in
+  let predicate =
+    translate_expr (QuantifiedExpr.f_expr quantified_expr :> Expr.t)
+  in
+  Ada_ir.Expr.Quantified (quantifier, iterator_spec, predicate)
+
+and translate_iterator_specification (loop_spec : ForLoopSpec.t) =
+  let name_from_expr expr =
+    (* reimplement this locally to directy raise legality error *)
+    match name_from_expr false expr with
+    | Some e ->
+        e
+    | None ->
+        Utils.legality_error "Expected a name for loop iterator, got %a"
+          Ada_ir.Expr.pp expr
+  in
+  let var_name = ForLoopVarDecl.f_id (ForLoopSpec.f_var_decl loop_spec) in
+  let reversed =
+    match ForLoopSpec.f_has_reverse loop_spec with
+    | #ReversePresent.t ->
+        true
+    | #ReverseAbsent.t ->
+        false
+  in
+  let iter_kind =
+    match ForLoopSpec.f_loop_type loop_spec with
+    | #IterTypeIn.t -> (
+      match ForLoopSpec.f_iter_expr loop_spec with
+      | #Lal_typ.discrete_range as range when Lal_typ.is_discrete_range range
+        ->
+          Ada_ir.Expr.Iterator (translate_discrete_range range)
+      | expr ->
+          Utils.legality_error "Expecting a discrete range, got %a"
+            Utils.pp_node expr )
+    | #IterTypeOf.t -> (
+      match
+        ( ForLoopSpec.f_iter_expr loop_spec
+          :> [DiscreteSubtypeIndication.t | Expr.t] )
+      with
+      | #Expr.t as expr ->
+          Iterable (name_from_expr (translate_expr expr))
+      | #DiscreteSubtypeIndication.t as typ ->
+          Utils.legality_error "Unexpected subtype indication, got %a"
+            Utils.pp_node typ )
+  in
+  Ada_ir.Expr.{var_name; reversed; iter_kind}
 
 and translate_allocator (allocator : Allocator.t) =
   match Allocator.f_type_or_expr allocator with

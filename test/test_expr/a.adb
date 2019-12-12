@@ -248,4 +248,19 @@ package body A is
               when 12 | 21 => 35,
               when others => 31);
    end Test_Case_Expression;
-end A;k
+
+   procedure Test_Quantified is
+      type Arr is array (1 .. 10) of Integer;
+
+      A : Arr;
+
+      B : Boolean;
+   begin
+      B := (for some I in A'Range => A (I) = 42);
+      B := (for all I in A'Range => A (I) = 42);
+      B := (for some I in 1 .. 10 => A (I) = 42);
+      B := (for all I in Integer => A (I) = 42);
+      B := (for some I of A => A (I) = 42);
+      B := (for all E of A => E = 42);
+   end Test_Quantified;
+end A;

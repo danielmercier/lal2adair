@@ -14,6 +14,14 @@ and expr_node =
   | Allocator of type_expr * t option
   | If of t * t * t
   | Case of t * case_expr_alternative list * t option
+  | Quantified of quantifier * iterator_specification * t
+
+and quantifier = ForAll | Exists
+
+and iterator_specification =
+  {var_name: Name.t; reversed: bool; iter_kind: iter_kind}
+
+and iter_kind = Iterator of discrete_range | Iterable of name
 
 and name =
   | Var of varinfo

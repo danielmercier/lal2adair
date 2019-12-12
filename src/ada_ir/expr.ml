@@ -14,6 +14,14 @@ and expr_node =
   | Allocator of type_expr * t option
   | If of t * t * t
   | Case of t * case_expr_alternative list * t option
+  | Quantified of quantifier * iterator_specification * t
+
+and quantifier = ForAll | Exists
+
+and iterator_specification =
+  {var_name: Name.t; reversed: bool; iter_kind: iter_kind}
+
+and iter_kind = Iterator of discrete_range | Iterable of name
 
 and name =
   | Var of varinfo
@@ -326,6 +334,29 @@ let rec pp fmt {node} =
     Format.fprintf fmt "@[<hv 2>case %a is@ %a%a@]" pp case_expr
       pp_alternatives case_alternatives pp_others others_expr
   in
+  let pp_iterator_specification fmt {var_name; reversed; iter_kind} =
+    let pp_reversed fmt reversed =
+      if reversed then Format.pp_print_string fmt " reversed"
+    in
+    let pp_iter_kind fmt = function
+      | Iterator range ->
+          Format.fprintf fmt "in%a %a" pp_reversed reversed pp_discrete_range
+            range
+      | Iterable name ->
+          Format.fprintf fmt "of%a %a" pp_reversed reversed pp_name name
+    in
+    Format.fprintf fmt "%a %a" Name.pp var_name pp_iter_kind iter_kind
+  in
+  let pp_quantified fmt (quantifier, iterator_specification, predicate) =
+    let pp_quantifier fmt = function
+      | ForAll ->
+          Format.pp_print_string fmt "all"
+      | Exists ->
+          Format.pp_print_string fmt "some"
+    in
+    Format.fprintf fmt "(@[<hv 2>for %a %a =>@ %a@])" pp_quantifier quantifier
+      pp_iterator_specification iterator_specification pp predicate
+  in
   match node with
   | Const const ->
       Format.fprintf fmt "@[%a@]" pp_const const
@@ -374,3 +405,6 @@ let rec pp fmt {node} =
   | Case (case_expr, case_alternatives, others_expr) ->
       Format.fprintf fmt "@[%a@]" pp_case_expr
         (case_expr, case_alternatives, others_expr)
+  | Quantified (quantifier, iterator_specification, predicate) ->
+      Format.fprintf fmt "@[%a@]" pp_quantified
+        (quantifier, iterator_specification, predicate)
