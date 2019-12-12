@@ -10,7 +10,8 @@ and expr_node =
   | RecordAggregate of record_aggregate
   | NullRecordAggregate
   | NamedArrayAggregate of named array_aggregate
-  | PositionalArrayAggregate of positional array_aggregate
+  | PositionalArrayAggregate of t array_aggregate
+  | Allocator of type_expr * t option
 
 and name =
   | Var of varinfo
@@ -93,8 +94,6 @@ and aggregate_expr = Expr of t | Default
 and 'a array_aggregate = {assoc: 'a list; others: t option}
 
 and named = {index: discrete_choice list; aggregate_expr: t}
-
-and positional = t
 
 and discrete_choice = ExprChoice of t | RangeChoice of discrete_range
 

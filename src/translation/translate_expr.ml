@@ -765,7 +765,17 @@ and translate_case_expr_alternative
 and translate_quantified_expr (_quantified_expr : QuantifiedExpr.t) =
   assert false
 
-and translate_allocator (_allocator : Allocator.t) = assert false
+and translate_allocator (allocator : Allocator.t) =
+  match Allocator.f_type_or_expr allocator with
+  | #SubtypeIndication.t as subtype_indication ->
+      let type_expr = translate_type_expr (subtype_indication :> TypeExpr.t) in
+      Ada_ir.Expr.Allocator (type_expr, None)
+  | #QualExpr.t as qual_expr -> (
+    match translate_qual_expr qual_expr with
+    | QualExpr (typ, expr) ->
+        Allocator ((typ, None), Some expr)
+    | _ ->
+        assert false )
 
 and translate_raise_expr (raise_expr : RaiseExpr.t) =
   let name =

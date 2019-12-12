@@ -68,3 +68,8 @@ Test_Array_Aggregate:
   <Aggregate a.adb:220:12-220:69> = (Integer range 1 .. 2 => 12,
                                      Int1_5 no range => 21, others => 
                                      212)
+Test_Allocator:
+  <Allocator a.adb:235:12-235:19> = Rec
+  <Allocator a.adb:236:12-236:19> = Arr
+  <Allocator a.adb:237:12-237:48> = Rec'((X => 1, Y => 2, B => False))
+  <Allocator a.adb:238:12-238:34> = Arr'((, others => 42))

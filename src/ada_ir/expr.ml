@@ -10,7 +10,8 @@ and expr_node =
   | RecordAggregate of record_aggregate
   | NullRecordAggregate
   | NamedArrayAggregate of named array_aggregate
-  | PositionalArrayAggregate of positional array_aggregate
+  | PositionalArrayAggregate of t array_aggregate
+  | Allocator of type_expr * t option
 
 and name =
   | Var of varinfo
@@ -94,8 +95,6 @@ and 'a array_aggregate = {assoc: 'a list; others: t option}
 
 and named = {index: discrete_choice list; aggregate_expr: t}
 
-and positional = t
-
 and discrete_choice = ExprChoice of t | RangeChoice of discrete_range
 
 let undefined () = Var Undefined
@@ -118,6 +117,13 @@ let rec pp fmt {node} =
         Format.pp_print_string fmt "Unrestriced_Access"
     | Address ->
         Format.pp_print_string fmt "Address"
+  in
+  let pp_type_expr fmt type_expr =
+    match type_expr with
+    | typ, Some (RangeConstraint (left, right)) ->
+        Format.fprintf fmt "@[%a range %a .. %a@]" Typ.pp typ pp left pp right
+    | typ, None ->
+        Format.fprintf fmt "@[%a@]" Typ.pp typ
   in
   let rec pp_name fmt = function
     | Var (Source {vname}) ->
@@ -331,3 +337,11 @@ let rec pp fmt {node} =
       Format.fprintf fmt "@[%a@]" (pp_array_aggregate pp_positional) aggregate
   | NamedArrayAggregate aggregate ->
       Format.fprintf fmt "@[%a@]" (pp_array_aggregate pp_named) aggregate
+  | Allocator (type_expr, expr) ->
+      let pp_expr fmt = function
+        | Some e ->
+            Format.fprintf fmt "'(%a)" pp e
+        | None ->
+            ()
+      in
+      Format.fprintf fmt "@[%a%a@]" pp_type_expr type_expr pp_expr expr

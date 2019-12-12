@@ -219,4 +219,22 @@ package body A is
       A := (1, 2, 3, 4, others => 13);
       A := (Integer range 1 .. 2 => 12, Int1_5 => 21, others => 212);
    end Test_Array_Aggregate;
+
+   procedure Test_Allocator is
+      type Rec is record
+         X, Y : Integer;
+         B : Boolean;
+      end record;
+
+      type Arr is array (1 .. 10) of Integer;
+      subtype Int1_5 is Integer range 3 .. 5;
+
+      R : access Rec;
+      A : access Arr;
+   begin
+      R := new Rec;
+      A := new Arr;
+      R := new Rec'(X => 1, Y => 2, B => False);
+      A := new Arr'(others => 42);
+   end Test_Allocator;
 end A;
