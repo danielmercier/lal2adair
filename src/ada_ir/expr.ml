@@ -12,6 +12,7 @@ and expr_node =
   | NamedArrayAggregate of named array_aggregate
   | PositionalArrayAggregate of t array_aggregate
   | Allocator of type_expr * t option
+  | If of t * t * t
 
 and name =
   | Var of varinfo
@@ -345,3 +346,6 @@ let rec pp fmt {node} =
             ()
       in
       Format.fprintf fmt "@[%a%a@]" pp_type_expr type_expr pp_expr expr
+  | If (condition, then_e, else_e) ->
+      Format.fprintf fmt "@[if %a then %a%a@]" pp condition pp then_e pp
+        else_e

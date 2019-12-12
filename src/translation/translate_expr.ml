@@ -739,7 +739,36 @@ and translate_qual_expr (qual_expr : QualExpr.t) : Ada_ir.Expr.name =
 
 and translate_box_expr (_box_expr : BoxExpr.t) = assert false
 
-and translate_if_expr (_if_expr : IfExpr.t) = assert false
+and translate_if_expr (if_expr : IfExpr.t) =
+  let typ = Translate_typ.translate_type_of_expr if_expr in
+  let translate_else_part = function
+    | Some expr ->
+        translate_expr (expr :> Expr.t)
+    | None ->
+        (* Should be true expression here *)
+        assert false
+  in
+  let translate_alternative alternative else_expr =
+    let cond_expr =
+      translate_expr (ElsifExprPart.f_cond_expr alternative :> Expr.t)
+    in
+    let then_expr =
+      translate_expr (ElsifExprPart.f_then_expr alternative :> Expr.t)
+    in
+    { Ada_ir.Expr.node= If (cond_expr, then_expr, else_expr)
+    ; orig_node= (if_expr :> Expr.t)
+    ; typ }
+  in
+  let cond_expr = translate_expr (IfExpr.f_cond_expr if_expr :> Expr.t) in
+  let then_expr = translate_expr (IfExpr.f_then_expr if_expr :> Expr.t) in
+  let else_expr = translate_else_part (IfExpr.f_else_expr if_expr) in
+  let alternatives =
+    ElsifExprPartList.f_list (IfExpr.f_alternatives if_expr)
+  in
+  let elsif_expr =
+    List.fold_right ~f:translate_alternative ~init:else_expr alternatives
+  in
+  Ada_ir.Expr.If (cond_expr, then_expr, elsif_expr)
 
 and translate_discrete_choice (node : AdaNode.t) =
   match node with

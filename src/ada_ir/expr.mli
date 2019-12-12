@@ -12,6 +12,7 @@ and expr_node =
   | NamedArrayAggregate of named array_aggregate
   | PositionalArrayAggregate of t array_aggregate
   | Allocator of type_expr * t option
+  | If of t * t * t
 
 and name =
   | Var of varinfo
