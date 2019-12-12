@@ -231,7 +231,72 @@ and translate_record_aggregate (assoc_list : AssocList.t) =
   Ada_ir.Expr.RecordAggregate
     (List.map ~f:record_association assoc_with_params)
 
-and translate_array_aggregate (_assoc_list : AssocList.t) = assert false
+and translate_array_aggregate (assoc_list : AssocList.t) =
+  let to_aggregate_assoc = function
+    | #AggregateAssoc.t as assoc ->
+        assoc
+    | assoc ->
+        Utils.legality_error "Expecting an aggregate association, found %a"
+          Utils.pp_node assoc
+  in
+  let aggregate_assocs =
+    List.map ~f:to_aggregate_assoc (AssocList.f_list assoc_list)
+  in
+  let translate_aggregate translate_assoc aggregate_assoc aggregate =
+    (* Translate one association for either named or positional array
+       aggregate, depending on the translation function given *)
+    let designators =
+      Option.value_map ~f:AlternativesList.f_list ~default:[]
+        (AggregateAssoc.f_designators aggregate_assoc)
+    in
+    let expr =
+      translate_expr (AggregateAssoc.f_r_expr aggregate_assoc :> Expr.t)
+    in
+    match%nolazy designators with
+    | [#OthersDesignator.t] ->
+        Ada_ir.Expr.{aggregate with others= Some expr}
+    | designators ->
+        let new_assoc = translate_assoc designators expr in
+        {aggregate with assoc= new_assoc :: aggregate.assoc}
+  in
+  let init = Ada_ir.Expr.{assoc= []; others= None} in
+  match%nolazy aggregate_assocs with
+  | `AggregateAssoc {f_designators= Some (`AlternativesList {list= []})} :: _
+  | `AggregateAssoc {f_designators= None} :: _ ->
+      (* Positional array aggregate *)
+      let aggregate =
+        List.fold_right
+          ~f:(translate_aggregate translate_positional_array_assoc)
+          ~init aggregate_assocs
+      in
+      PositionalArrayAggregate aggregate
+  | _ ->
+      (* Named array aggregate *)
+      let aggregate =
+        List.fold_right
+          ~f:(translate_aggregate translate_named_array_assoc)
+          ~init aggregate_assocs
+      in
+      NamedArrayAggregate aggregate
+
+and translate_positional_array_assoc (designators : AdaNode.t list)
+    (expr : Ada_ir.Expr.t) =
+  match%nolazy designators with
+  | [] ->
+      expr
+  | _ ->
+      (* not a positional array aggregate *)
+      Utils.legality_error "Expecting a positional array aggregate"
+
+and translate_named_array_assoc (designators : AdaNode.t list)
+    (expr : Ada_ir.Expr.t) =
+  match designators with
+  | [] ->
+      (* not a named array aggregate *)
+      Utils.legality_error "Expecting a named array aggregate"
+  | alternatives ->
+      { Ada_ir.Expr.index= List.map ~f:translate_discrete_choice alternatives
+      ; aggregate_expr= expr }
 
 and translate_name (name : Name.t) : Ada_ir.Expr.expr_node =
   match name with
@@ -675,6 +740,21 @@ and translate_qual_expr (qual_expr : QualExpr.t) : Ada_ir.Expr.name =
 and translate_box_expr (_box_expr : BoxExpr.t) = assert false
 
 and translate_if_expr (_if_expr : IfExpr.t) = assert false
+
+and translate_discrete_choice (node : AdaNode.t) =
+  match node with
+  | #Lal_typ.discrete_range as discrete_range
+    when Lal_typ.is_discrete_range discrete_range ->
+      Ada_ir.Expr.RangeChoice (translate_discrete_range discrete_range)
+  | #Expr.t as expr ->
+      ExprChoice (translate_expr (expr :> Expr.t))
+  | #OthersDesignator.t ->
+      Utils.legality_error
+        "others should appear alone and be the last alternative of the \
+         aggregate"
+  | _ ->
+      Utils.lal_error "Unexpected node %a for discrete_choice" Utils.pp_node
+        node
 
 and translate_case_expr (_case_expr : CaseExpr.t) = assert false
 

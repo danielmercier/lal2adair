@@ -208,4 +208,15 @@ package body A is
       R := (X | Y => 42, B => True);
       R := (X | Y => 42, B => <>);
    end Test_Record_Aggregate;
+
+   procedure Test_Array_Aggregate is
+      type Arr is array (1 .. 10) of Integer;
+      subtype Int1_5 is Integer range 3 .. 5;
+
+      A : Arr;
+   begin
+      A := (1 .. 5 | 6 => 42, others => 13);
+      A := (1, 2, 3, 4, others => 13);
+      A := (Integer range 1 .. 2 => 12, Int1_5 => 21, others => 212);
+   end Test_Array_Aggregate;
 end A;

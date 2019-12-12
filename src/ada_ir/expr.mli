@@ -9,6 +9,8 @@ and expr_node =
   | Binop of binop * t * t
   | RecordAggregate of record_aggregate
   | NullRecordAggregate
+  | NamedArrayAggregate of named array_aggregate
+  | PositionalArrayAggregate of positional array_aggregate
 
 and name =
   | Var of varinfo
@@ -87,6 +89,14 @@ and record_aggregate = record_association list
 and record_association = {field: fieldinfo; expr: aggregate_expr}
 
 and aggregate_expr = Expr of t | Default
+
+and 'a array_aggregate = {assoc: 'a list; others: t option}
+
+and named = {index: discrete_choice list; aggregate_expr: t}
+
+and positional = t
+
+and discrete_choice = ExprChoice of t | RangeChoice of discrete_range
 
 val undefined : unit -> name
 (** return a undefined name *)

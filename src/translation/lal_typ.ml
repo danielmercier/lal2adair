@@ -156,3 +156,11 @@ let is_range range =
         true
     | _ ->
         false )
+
+let is_discrete_range = function
+  | #identifier as ident ->
+      Option.is_some (try Name.p_name_designated_type ident with _ -> None)
+  | #range as range ->
+      is_range range
+  | #DiscreteSubtypeIndication.t ->
+      true

@@ -9,6 +9,8 @@ and expr_node =
   | Binop of binop * t * t
   | RecordAggregate of record_aggregate
   | NullRecordAggregate
+  | NamedArrayAggregate of named array_aggregate
+  | PositionalArrayAggregate of positional array_aggregate
 
 and name =
   | Var of varinfo
@@ -88,6 +90,14 @@ and record_association = {field: fieldinfo; expr: aggregate_expr}
 
 and aggregate_expr = Expr of t | Default
 
+and 'a array_aggregate = {assoc: 'a list; others: t option}
+
+and named = {index: discrete_choice list; aggregate_expr: t}
+
+and positional = t
+
+and discrete_choice = ExprChoice of t | RangeChoice of discrete_range
+
 let undefined () = Var Undefined
 
 let rec pp fmt {node} =
@@ -124,7 +134,7 @@ let rec pp fmt {node} =
           (Format.pp_print_list ~pp_sep pp)
           indicies
     | Slice (name, range) ->
-        Format.fprintf fmt "@[%a [%a]@]" pp_name name pp_slice_range range
+        Format.fprintf fmt "@[%a [%a]@]" pp_name name pp_discrete_range range
     | Field (name, {fieldname}) ->
         Format.fprintf fmt "%a.%a" pp_name name Name.pp fieldname
     | AttributeRef attribute_ref ->
@@ -163,7 +173,7 @@ let rec pp fmt {node} =
         in
         Format.fprintf fmt "@[%a'Range%a@]" pp_range_prefix range_prefix
           pp_index_opt index_opt
-  and pp_slice_range fmt = function
+  and pp_discrete_range fmt = function
     | DiscreteType (typ, Some (left, right)) ->
         Format.fprintf fmt "@[%a range %a .. %a@]" Typ.pp typ pp left pp right
     | DiscreteType (typ, None) ->
@@ -261,6 +271,31 @@ let rec pp fmt {node} =
       (Format.pp_print_list ~pp_sep pp_record_association)
       record_aggregate
   in
+  let pp_discrete_choice fmt = function
+    | ExprChoice e ->
+        pp fmt e
+    | RangeChoice range ->
+        pp_discrete_range fmt range
+  in
+  let pp_positional fmt assoc = pp fmt assoc in
+  let pp_named fmt assoc =
+    let pp_sep fmt () = Format.fprintf fmt " |@ " in
+    Format.fprintf fmt "@[%a => %a@]"
+      (Format.pp_print_list ~pp_sep pp_discrete_choice)
+      assoc.index pp assoc.aggregate_expr
+  in
+  let pp_array_aggregate pp_assoc fmt aggregate =
+    let pp_others fmt = function
+      | Some e ->
+          Format.fprintf fmt ",@ others => %a" pp e
+      | None ->
+          ()
+    in
+    let pp_sep fmt () = Format.fprintf fmt ",@ " in
+    Format.fprintf fmt "(@[%a%a@])"
+      (Format.pp_print_list ~pp_sep pp_assoc)
+      aggregate.assoc pp_others aggregate.others
+  in
   match node with
   | Const const ->
       Format.fprintf fmt "@[%a@]" pp_const const
@@ -292,3 +327,7 @@ let rec pp fmt {node} =
       Format.fprintf fmt "@[%a@]" pp_record_aggregate record_aggregate
   | NullRecordAggregate ->
       Format.fprintf fmt "@[(null record)@]"
+  | PositionalArrayAggregate aggregate ->
+      Format.fprintf fmt "@[%a@]" (pp_array_aggregate pp_positional) aggregate
+  | NamedArrayAggregate aggregate ->
+      Format.fprintf fmt "@[%a@]" (pp_array_aggregate pp_named) aggregate

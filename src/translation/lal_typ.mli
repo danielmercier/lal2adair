@@ -16,12 +16,15 @@ type call = [identifier | CallExpr.t | ExplicitDeref.t]
 
 type range = [BinOp.t | AttributeRef.t]
 
-type discrete_range =
-  [identifier | BinOp.t | AttributeRef.t | DiscreteSubtypeIndication.t]
+type discrete_range = [identifier | range | DiscreteSubtypeIndication.t]
 
 val is_range : [< range] -> bool
 (** return true if the given range is a legal range. A legal range is either
     a binop with double dot operator or a range attribute reference *)
+
+val is_discrete_range : [< discrete_range] -> bool
+(** return true if the given discrete range is a legal range. A legal discrete
+    range is either range or subtype indication *)
 
 val is_literal : [< literal] -> bool
 (** return true if the given literal truelly denotes a literal. i.e. if the
