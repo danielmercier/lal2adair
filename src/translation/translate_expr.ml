@@ -785,7 +785,26 @@ and translate_discrete_choice (node : AdaNode.t) =
       Utils.lal_error "Unexpected node %a for discrete_choice" Utils.pp_node
         node
 
-and translate_case_expr (_case_expr : CaseExpr.t) = assert false
+and translate_case_expr (case_expr : CaseExpr.t) =
+  let translate_alternative (alternatives, others) alternative =
+    let when_expr =
+      translate_expr (CaseExprAlternative.f_expr alternative :> Expr.t)
+    in
+    match
+      AlternativesList.f_list (CaseExprAlternative.f_choices alternative)
+    with
+    | [#OthersDesignator.t] ->
+        (alternatives, Some when_expr)
+    | choices ->
+        let choices = List.map ~f:translate_discrete_choice choices in
+        ({Ada_ir.Expr.choices; when_expr} :: alternatives, others)
+  in
+  let expr = translate_expr (CaseExpr.f_expr case_expr :> Expr.t) in
+  let alternatives, others =
+    List.fold ~f:translate_alternative ~init:([], None)
+      (CaseExprAlternativeList.f_list (CaseExpr.f_cases case_expr))
+  in
+  Ada_ir.Expr.Case (expr, List.rev alternatives, others)
 
 and translate_case_expr_alternative
     (_case_expr_alternative : CaseExprAlternative.t) =

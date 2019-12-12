@@ -73,3 +73,8 @@ Test_Allocator:
   <Allocator a.adb:236:12-236:19> = Arr
   <Allocator a.adb:237:12-237:48> = Rec'((X => 1, Y => 2, B => False))
   <Allocator a.adb:238:12-238:34> = Arr'((, others => 42))
+Test_Case_Expression:
+  <ParenExpr a.adb:246:12-249:33> = case 5 is
+                                      when Int1_5 no range => 42,
+                                      when 12 | 21 => 35,
+                                      when others => 31

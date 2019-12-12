@@ -13,6 +13,7 @@ and expr_node =
   | PositionalArrayAggregate of t array_aggregate
   | Allocator of type_expr * t option
   | If of t * t * t
+  | Case of t * case_expr_alternative list * t option
 
 and name =
   | Var of varinfo
@@ -97,6 +98,8 @@ and 'a array_aggregate = {assoc: 'a list; others: t option}
 and named = {index: discrete_choice list; aggregate_expr: t}
 
 and discrete_choice = ExprChoice of t | RangeChoice of discrete_range
+
+and case_expr_alternative = {choices: discrete_choice list; when_expr: t}
 
 let undefined () = Var Undefined
 
@@ -303,6 +306,26 @@ let rec pp fmt {node} =
       (Format.pp_print_list ~pp_sep pp_assoc)
       aggregate.assoc pp_others aggregate.others
   in
+  let pp_case_expr fmt (case_expr, case_alternatives, others_expr) =
+    let pp_others fmt = function
+      | Some e ->
+          Format.fprintf fmt ",@ when others => %a" pp e
+      | None ->
+          ()
+    in
+    let pp_case_expr_alternative fmt alternative =
+      let pp_sep fmt () = Format.fprintf fmt "@ | " in
+      Format.fprintf fmt "when @[%a => @[%a@]@]"
+        (Format.pp_print_list ~pp_sep pp_discrete_choice)
+        alternative.choices pp alternative.when_expr
+    in
+    let pp_alternatives =
+      let pp_sep fmt () = Format.fprintf fmt ",@ " in
+      Format.pp_print_list ~pp_sep pp_case_expr_alternative
+    in
+    Format.fprintf fmt "@[<hv 2>case %a is@ %a%a@]" pp case_expr
+      pp_alternatives case_alternatives pp_others others_expr
+  in
   match node with
   | Const const ->
       Format.fprintf fmt "@[%a@]" pp_const const
@@ -347,5 +370,7 @@ let rec pp fmt {node} =
       in
       Format.fprintf fmt "@[%a%a@]" pp_type_expr type_expr pp_expr expr
   | If (condition, then_e, else_e) ->
-      Format.fprintf fmt "@[if %a then %a%a@]" pp condition pp then_e pp
-        else_e
+      Format.fprintf fmt "@[if %a then %a%a@]" pp condition pp then_e pp else_e
+  | Case (case_expr, case_alternatives, others_expr) ->
+      Format.fprintf fmt "@[%a@]" pp_case_expr
+        (case_expr, case_alternatives, others_expr)

@@ -237,4 +237,15 @@ package body A is
       R := new Rec'(X => 1, Y => 2, B => False);
       A := new Arr'(others => 42);
    end Test_Allocator;
-end A;
+
+   procedure Test_Case_Expression is
+      subtype Int1_5 is Integer range 1 .. 5;
+
+      X : Integer;
+   begin
+      X := (case 5 is
+              when Int1_5 => 42,
+              when 12 | 21 => 35,
+              when others => 31);
+   end Test_Case_Expression;
+end A;k

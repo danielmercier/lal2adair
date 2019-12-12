@@ -13,6 +13,7 @@ and expr_node =
   | PositionalArrayAggregate of t array_aggregate
   | Allocator of type_expr * t option
   | If of t * t * t
+  | Case of t * case_expr_alternative list * t option
 
 and name =
   | Var of varinfo
@@ -97,6 +98,8 @@ and 'a array_aggregate = {assoc: 'a list; others: t option}
 and named = {index: discrete_choice list; aggregate_expr: t}
 
 and discrete_choice = ExprChoice of t | RangeChoice of discrete_range
+
+and case_expr_alternative = {choices: discrete_choice list; when_expr: t}
 
 val undefined : unit -> name
 (** return a undefined name *)
