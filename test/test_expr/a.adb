@@ -263,4 +263,17 @@ package body A is
       B := (for some I of A => A (I) = 42);
       B := (for all E of A => E = 42);
    end Test_Quantified;
+
+   procedure Test_Attribute is
+      type Arr is array (1 .. 10) of Integer;
+      type MyInt is new Integer range 1 .. 10;
+
+      A : Arr;
+
+      X : Integer;
+   begin
+      X := A'First + A'Last + A'Length;
+
+      X := Arr'First + MyInt'Last + A'Length;
+   end Test_Attribute;
 end A;

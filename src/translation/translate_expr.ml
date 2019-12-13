@@ -514,38 +514,66 @@ and translate_args (subp_spec : BaseSubpSpec.t)
   in
   build_args formals_with_default actuals
 
+and translate_type_or_name (implicit_deref : bool) (expr : Expr.t) =
+  (* Translate the given expr as a type or a name *)
+  let name_from_expr expr =
+    match name_from_expr implicit_deref expr with
+    | Some name ->
+        name
+    | None ->
+        Utils.legality_error "Expecting a name, got %a" Ada_ir.Expr.pp expr
+  in
+  match expr with
+  | #Lal_typ.identifier as ident -> (
+    match try Name.p_name_designated_type ident with _ -> None with
+    | Some typ ->
+        `Type typ
+    | None ->
+        (* a simple expression in this case *)
+        `Name (name_from_expr (translate_expr (ident :> Expr.t))) )
+  | _ ->
+      `Name (name_from_expr (translate_expr expr))
+
+and translate_fun_or_name (implicit_deref : bool) (expr : Expr.t) =
+  (* Translate the given expr as a subprogram or a name *)
+  let name_from_expr expr =
+    match name_from_expr implicit_deref expr with
+    | Some name ->
+        name
+    | None ->
+        Utils.legality_error "Expecting a name, got %a" Ada_ir.Expr.pp expr
+  in
+  match expr with
+  | #Lal_typ.identifier as ident when Lal_typ.is_subprogram ident ->
+      let subp_spec = Utils.referenced_subp_spec ident in
+      `Fun (funinfo subp_spec)
+  | expr ->
+      `Name (name_from_expr (translate_expr expr))
+
 and translate_attribute_ref (attribute_ref : AttributeRef.t) =
   let attribute = Utils.attribute (AttributeRef.f_attribute attribute_ref) in
+  let prefix = (AttributeRef.f_prefix attribute_ref :> Expr.t) in
   match attribute with
-  | (`Access | `Unchecked_Access | `Unrestricted_Access | `Address) as
-    lal_access_kind ->
-      let access_kind =
-        let open Ada_ir.Expr in
-        match lal_access_kind with
-        | `Access ->
-            Access
-        | `Unchecked_Access ->
-            Unchecked_Access
-        | `Unrestricted_Access ->
-            Unrestriced_Access
-        | `Address ->
-            Address
+  | `Access ->
+      Ada_ir.Expr.AttributeRef (Access (translate_fun_or_name false prefix))
+  | `Unchecked_Access ->
+      AttributeRef (Unchecked_Access (translate_fun_or_name false prefix))
+  | `Unrestricted_Access ->
+      AttributeRef (Unrestricted_Access (translate_fun_or_name false prefix))
+  | `Address ->
+      AttributeRef (Address (translate_fun_or_name false prefix))
+  | (`First | `Last | `Length) as attribute -> (
+      let prefix = translate_type_or_name true prefix in
+      let index_opt =
+        Option.map ~f:translate_arg_as_int (AttributeRef.f_args attribute_ref)
       in
-      let attribute_ref =
-        match AttributeRef.f_prefix attribute_ref with
-        | #Lal_typ.identifier as ident when Lal_typ.is_subprogram ident ->
-            let subp_spec = Utils.referenced_subp_spec ident in
-            Ada_ir.Expr.FunAccess (access_kind, funinfo subp_spec)
-        | expr -> (
-            let expr = translate_expr (expr :> Expr.t) in
-            match name_from_expr false expr with
-            | Some name ->
-                NameAccess (access_kind, name)
-            | None ->
-                Utils.legality_error "Expected a name for a 'Access, got %a"
-                  Ada_ir.Expr.pp expr )
-      in
-      Ada_ir.Expr.AttributeRef attribute_ref
+      match attribute with
+      | `First ->
+          AttributeRef (First (prefix, index_opt))
+      | `Last ->
+          AttributeRef (Last (prefix, index_opt))
+      | `Length ->
+          AttributeRef (Length (prefix, index_opt)) )
   | _ ->
       Utils.unimplemented attribute_ref
 
@@ -642,6 +670,22 @@ and translate_discrete_range (range : Lal_typ.discrete_range) :
   | #Lal_typ.range as range ->
       DiscreteRange (translate_range range)
 
+and translate_arg_as_int (args : AdaNode.t) =
+  (* Compute the index of the given args *)
+  match%nolazy args with
+  | `AssocList {list= [`ParamAssoc {f_r_expr}]} ->
+      let index =
+        try Expr.p_eval_as_int f_r_expr
+        with _ ->
+          Utils.legality_error "Expect a static expression, got %a"
+            Utils.pp_node f_r_expr
+      in
+      index
+  | arg ->
+      Utils.legality_error
+        "Expect an AssocList with one element for a range attribute, found %a"
+        Utils.pp_node arg
+
 and translate_range (range : Lal_typ.range) : Ada_ir.Expr.range =
   match%nolazy range with
   | `BinOp {f_left; f_op= `OpDoubleDot _; f_right} ->
@@ -655,46 +699,14 @@ and translate_range (range : Lal_typ.range) : Ada_ir.Expr.range =
     match Utils.attribute (AttributeRef.f_attribute attribute_ref) with
     | `Range ->
         let index_opt =
-          (* Compute the index of the range if there is one *)
-          match%nolazy AttributeRef.f_args attribute_ref with
-          | Some (`AssocList {list= [`ParamAssoc {f_r_expr}]}) ->
-              let index =
-                try Expr.p_eval_as_int f_r_expr
-                with _ ->
-                  Utils.legality_error "Expect a static expression, got %a"
-                    Utils.pp_node f_r_expr
-              in
-              Some index
-          | Some arg ->
-              Utils.legality_error
-                "Expect an AssocList with one element for a range attribute, \
-                 found %a"
-                Utils.pp_node arg
-          | None ->
-              None
+          Option.map ~f:translate_arg_as_int
+            (AttributeRef.f_args attribute_ref)
         in
-        let prefix = AttributeRef.f_prefix attribute_ref in
-        let range_prefix =
-          (* Compute the prefix of the range attribute *)
-          match try Name.p_name_designated_type prefix with _ -> None with
-          | Some typ ->
-              Ada_ir.Expr.Type typ
-          | None ->
-              (* We assume here that this is an array *)
-              let lval =
-                match
-                  name_from_expr true (translate_expr (prefix :> Expr.t))
-                with
-                | Some lval ->
-                    lval
-                | None ->
-                    Utils.legality_error
-                      "Expect an array for attribute range, found %a"
-                      Utils.pp_node prefix
-              in
-              Array lval
+        let prefix =
+          translate_type_or_name true
+            (AttributeRef.f_prefix attribute_ref :> Expr.t)
         in
-        Range (range_prefix, index_opt)
+        Range (prefix, index_opt)
     | _ ->
         Utils.legality_error "Expect range_attribute_ref for a range, got %a"
           Utils.pp_node attribute_ref )

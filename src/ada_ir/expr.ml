@@ -41,15 +41,13 @@ and discrete_range =
   | DiscreteType of Typ.t * range_constraint option
   | DiscreteRange of range
 
-and range = DoubleDot of t * t | Range of range_prefix * int option
+and range = DoubleDot of t * t | Range of type_or_name * int option
 
 and type_expr = Typ.t * type_constraint option
 
 and type_constraint = RangeConstraint of range_constraint
 
 and range_constraint = t * t
-
-and range_prefix = Type of Typ.t | Array of name
 
 and membership_kind = In | NotIn
 
@@ -67,10 +65,17 @@ and function_name = Cfun of funinfo | Pfun of name
 and funinfo = {fname: Name.t}
 
 and attribute_ref =
-  | NameAccess of access_kind * name
-  | FunAccess of access_kind * funinfo
+  | Access of fun_or_name
+  | Unchecked_Access of fun_or_name
+  | Unrestricted_Access of fun_or_name
+  | Address of fun_or_name
+  | First of type_or_name * int option
+  | Last of type_or_name * int option
+  | Length of type_or_name * int option
 
-and access_kind = Access | Unchecked_Access | Unrestriced_Access | Address
+and type_or_name = [`Type of Typ.t | `Name of name]
+
+and fun_or_name = [`Fun of funinfo | `Name of name]
 
 and unop = Abs | Not | UnaryMinus | UnaryPlus
 
@@ -120,16 +125,6 @@ let rec pp fmt {node} =
     | Null ->
         Format.fprintf fmt "null"
   in
-  let pp_access_kind fmt = function
-    | Access ->
-        Format.pp_print_string fmt "Access"
-    | Unchecked_Access ->
-        Format.pp_print_string fmt "Unchecked_Access"
-    | Unrestriced_Access ->
-        Format.pp_print_string fmt "Unrestriced_Access"
-    | Address ->
-        Format.pp_print_string fmt "Address"
-  in
   let pp_type_expr fmt type_expr =
     match type_expr with
     | typ, Some (RangeConstraint (left, right)) ->
@@ -174,23 +169,17 @@ let rec pp fmt {node} =
     | Pfun name, args ->
         Format.fprintf fmt "@[<hv 2>%a.all@ (@[%a@])@]" pp_name name pp_args
           args
-  and pp_range_prefix fmt = function
-    | Type typ ->
-        Format.fprintf fmt "Type(%a)" Typ.pp typ
-    | Array arr ->
-        Format.fprintf fmt "Array(%a)" pp_name arr
+  and pp_index_arg fmt = function
+    | Some index ->
+        Format.fprintf fmt "(%d)" index
+    | None ->
+        ()
   and pp_range fmt = function
     | DoubleDot (left, right) ->
         Format.fprintf fmt "@[%a .. %a@]" pp left pp right
-    | Range (range_prefix, index_opt) ->
-        let pp_index_opt fmt = function
-          | Some i ->
-              Format.fprintf fmt "(%d)" i
-          | None ->
-              Format.fprintf fmt ""
-        in
-        Format.fprintf fmt "@[%a'Range%a@]" pp_range_prefix range_prefix
-          pp_index_opt index_opt
+    | Range (range_prefix, index) ->
+        Format.fprintf fmt "@[%a'Range%a@]" pp_type_or_name range_prefix
+          pp_index_arg index
   and pp_discrete_range fmt = function
     | DiscreteType (typ, Some (left, right)) ->
         Format.fprintf fmt "@[%a range %a .. %a@]" Typ.pp typ pp left pp right
@@ -198,11 +187,34 @@ let rec pp fmt {node} =
         Format.fprintf fmt "@[%a no range@]" Typ.pp typ
     | DiscreteRange range ->
         pp_range fmt range
+  and pp_fun_or_name fmt = function
+    | `Name name ->
+        Format.fprintf fmt "@[%a@]" pp_name name
+    | `Fun {fname} ->
+        Format.fprintf fmt "@[Fun(%a)@]" Name.pp fname
+  and pp_type_or_name fmt = function
+    | `Name name ->
+        Format.fprintf fmt "@[%a@]" pp_name name
+    | `Type typ ->
+        Format.fprintf fmt "@[Type(%a)@]" Typ.pp typ
   and pp_attribute_ref fmt = function
-    | NameAccess (kind, name) ->
-        Format.fprintf fmt "@[%a'%a@]" pp_name name pp_access_kind kind
-    | FunAccess (kind, {fname}) ->
-        Format.fprintf fmt "@[%a'%a@]" Name.pp fname pp_access_kind kind
+    | Access prefix ->
+        Format.fprintf fmt "@[%a'Access@]" pp_fun_or_name prefix
+    | Unchecked_Access prefix ->
+        Format.fprintf fmt "@[%a'Unchecked_Access@]" pp_fun_or_name prefix
+    | Unrestricted_Access prefix ->
+        Format.fprintf fmt "@[%a'Unrestricted_Access@]" pp_fun_or_name prefix
+    | Address prefix ->
+        Format.fprintf fmt "@[%a'Address@]" pp_fun_or_name prefix
+    | First (prefix, index) ->
+        Format.fprintf fmt "@[%a'First%a@]" pp_type_or_name prefix pp_index_arg
+          index
+    | Last (prefix, index) ->
+        Format.fprintf fmt "@[%a'Last%a@]" pp_type_or_name prefix pp_index_arg
+          index
+    | Length (prefix, index) ->
+        Format.fprintf fmt "@[%a'Length%a@]" pp_type_or_name prefix
+          pp_index_arg index
   in
   let pp_membership_choices fmt choices =
     let pp_choice fmt = function

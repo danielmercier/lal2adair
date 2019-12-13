@@ -41,15 +41,13 @@ and discrete_range =
   | DiscreteType of Typ.t * range_constraint option
   | DiscreteRange of range
 
-and range = DoubleDot of t * t | Range of range_prefix * int option
+and range = DoubleDot of t * t | Range of type_or_name * int option
 
 and type_expr = Typ.t * type_constraint option
 
 and type_constraint = RangeConstraint of range_constraint
 
 and range_constraint = t * t
-
-and range_prefix = Type of Typ.t | Array of name
 
 and membership_kind = In | NotIn
 
@@ -67,10 +65,17 @@ and function_name = Cfun of funinfo | Pfun of name
 and funinfo = {fname: Name.t}
 
 and attribute_ref =
-  | NameAccess of access_kind * name
-  | FunAccess of access_kind * funinfo
+  | Access of fun_or_name
+  | Unchecked_Access of fun_or_name
+  | Unrestricted_Access of fun_or_name
+  | Address of fun_or_name
+  | First of type_or_name * int option
+  | Last of type_or_name * int option
+  | Length of type_or_name * int option
 
-and access_kind = Access | Unchecked_Access | Unrestriced_Access | Address
+and type_or_name = [`Type of Typ.t | `Name of name]
+
+and fun_or_name = [`Fun of funinfo | `Name of name]
 
 and unop = Abs | Not | UnaryMinus | UnaryPlus
 

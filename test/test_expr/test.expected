@@ -35,8 +35,8 @@ Test_Array_Index:
   <CallExpr a.adb:132:15-132:30> = Arr1 [SmallInt no range]
   <CallExpr a.adb:133:15-133:42> = Arr1 [Integer range 1 .. 5]
   <CallExpr a.adb:134:15-134:36> = Arr1 [Type(SmallInt)'Range]
-  <CallExpr a.adb:135:15-135:32> = Arr1 [Array(Arr6)'Range]
-  <CallExpr a.adb:136:15-136:35> = Arr1 [Array(Arr2)'Range(1)]
+  <CallExpr a.adb:135:15-135:32> = Arr1 [Arr6'Range]
+  <CallExpr a.adb:136:15-136:35> = Arr1 [Arr2'Range(1)]
   <CallExpr a.adb:138:12-138:27> = Arr6 [3 .. 5] [3]
   <CallExpr a.adb:140:12-140:32> = Arr7 [2 .. 4] [3].all [10]
 Test_Membership_Expr:
@@ -79,12 +79,13 @@ Test_Case_Expression:
                                       when 12 | 21 => 35,
                                       when others => 31
 Test_Quantified:
-  <ParenExpr a.adb:259:12-259:49> = (for some I in Array(A)'Range =>
-                                       A [I] = 42)
-  <ParenExpr a.adb:260:12-260:48> = (for all I in Array(A)'Range =>
-                                       A [I] = 42)
+  <ParenExpr a.adb:259:12-259:49> = (for some I in A'Range => A [I] = 42)
+  <ParenExpr a.adb:260:12-260:48> = (for all I in A'Range => A [I] = 42)
   <ParenExpr a.adb:261:12-261:49> = (for some I in 1 .. 10 => A [I] = 42)
   <ParenExpr a.adb:262:12-262:48> = (for all I in Integer no range =>
                                        A [I] = 42)
   <ParenExpr a.adb:263:12-263:43> = (for some I of A => A [I] = 42)
   <ParenExpr a.adb:264:12-264:38> = (for all E of A => E = 42)
+Test_Attribute:
+  <BinOp a.adb:275:12-275:39> = A'First + A'Last + A'Length
+  <BinOp a.adb:277:12-277:45> = Type(Arr)'First + Type(MyInt)'Last + A'Length
