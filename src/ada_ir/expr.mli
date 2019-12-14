@@ -38,8 +38,7 @@ and name =
 and const = Int of Int_lit.t | String of string | Null
 
 and discrete_range =
-  | DiscreteType of Typ.t * range_constraint option
-  | DiscreteRange of range
+  [`DiscreteType of Typ.t * range_constraint option | `Range of range]
 
 and range = DoubleDot of t * t | Range of type_or_name * int option
 
@@ -51,10 +50,7 @@ and range_constraint = t * t
 
 and membership_kind = In | NotIn
 
-and membership_choice =
-  | ChoiceExpr of t
-  | ChoiceRange of range
-  | ChoiceType of Typ.t
+and membership_choice = [`Expr of t | `Range of range | `Type of Typ.t]
 
 and varinfo = Source of {vname: Name.t} | Undefined
 
@@ -72,6 +68,8 @@ and attribute_ref =
   | First of type_or_name * int option
   | Last of type_or_name * int option
   | Length of type_or_name * int option
+
+and type_or_expr = [`Type of Typ.t | `Expr of t]
 
 and type_or_name = [`Type of Typ.t | `Name of name]
 
@@ -110,7 +108,10 @@ and 'a array_aggregate = {assoc: 'a list; others: t option}
 
 and named = {index: discrete_choice list; aggregate_expr: t}
 
-and discrete_choice = ExprChoice of t | RangeChoice of discrete_range
+and discrete_choice =
+  [ `Expr of t
+  | `DiscreteType of Typ.t * range_constraint option
+  | `Range of range ]
 
 and case_expr_alternative = {choices: discrete_choice list; when_expr: t}
 

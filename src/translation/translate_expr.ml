@@ -162,18 +162,11 @@ and translate_membership_expr (membership_expr : MembershipExpr.t) :
     Ada_ir.Expr.expr_node =
   let translate_membership_choice expr =
     match expr with
-    | #Lal_typ.identifier as ident -> (
-      match try Name.p_name_designated_type ident with _ -> None with
-      | Some typ ->
-          Ada_ir.Expr.ChoiceType typ
-      | None ->
-          (* a simple expression in this case *)
-          ChoiceExpr (translate_expr (ident :> Expr.t)) )
     | #Lal_typ.range as range when Lal_typ.is_range range ->
-        ChoiceRange (translate_range range)
+        `Range (translate_range range)
     | _ ->
-        (* simply try to translate as a regular expression in this case *)
-        ChoiceExpr (translate_expr (expr :> Expr.t))
+        ( translate_type_or_expr (expr :> Expr.t)
+          :> Ada_ir.Expr.membership_choice )
   in
   let prefix_expr =
     translate_expr (MembershipExpr.f_expr membership_expr :> Expr.t)
@@ -514,6 +507,18 @@ and translate_args (subp_spec : BaseSubpSpec.t)
   in
   build_args formals_with_default actuals
 
+and translate_type_or_expr (expr : Expr.t) : Ada_ir.Expr.type_or_expr =
+  match expr with
+  | #Lal_typ.identifier as ident -> (
+    match try Name.p_name_designated_type ident with _ -> None with
+    | Some typ ->
+        `Type typ
+    | None ->
+        (* a simple expression in this case *)
+        `Expr (translate_expr expr) )
+  | _ ->
+      `Expr (translate_expr expr)
+
 and translate_type_or_name (implicit_deref : bool) (expr : Expr.t) =
   (* Translate the given expr as a type or a name *)
   let name_from_expr expr =
@@ -523,16 +528,11 @@ and translate_type_or_name (implicit_deref : bool) (expr : Expr.t) =
     | None ->
         Utils.legality_error "Expecting a name, got %a" Ada_ir.Expr.pp expr
   in
-  match expr with
-  | #Lal_typ.identifier as ident -> (
-    match try Name.p_name_designated_type ident with _ -> None with
-    | Some typ ->
-        `Type typ
-    | None ->
-        (* a simple expression in this case *)
-        `Name (name_from_expr (translate_expr (ident :> Expr.t))) )
-  | _ ->
-      `Name (name_from_expr (translate_expr expr))
+  match translate_type_or_expr expr with
+  | `Type typ ->
+      `Type typ
+  | `Expr e ->
+      `Name (name_from_expr e)
 
 and translate_fun_or_name (implicit_deref : bool) (expr : Expr.t) =
   (* Translate the given expr as a subprogram or a name *)
@@ -654,21 +654,21 @@ and translate_discrete_range (range : Lal_typ.discrete_range) :
   | #Lal_typ.identifier as ident -> (
     (* The only way to translate a range from an identifier, is if the
        identifier refers to a type *)
-    match try Name.p_name_designated_type ident with _ -> None with
-    | Some typ ->
-        DiscreteType (typ, None)
-    | None ->
+    match translate_type_or_expr (ident :> Expr.t) with
+    | `Type typ ->
+        `DiscreteType (typ, None)
+    | _ ->
         Utils.legality_error "Expect a type for range %a" Utils.pp_node ident )
   | #DiscreteSubtypeIndication.t as type_expr -> (
     (* Explicit discrete subtype indication. We translate the underlying type
        expression and see if it's a range constraint *)
     match translate_type_expr (type_expr :> TypeExpr.t) with
     | typ, Some (RangeConstraint (left, right)) ->
-        DiscreteType (typ, Some (left, right))
+        `DiscreteType (typ, Some (left, right))
     | typ, None ->
-        DiscreteType (typ, None) )
+        `DiscreteType (typ, None) )
   | #Lal_typ.range as range ->
-      DiscreteRange (translate_range range)
+      `Range (translate_range range)
 
 and translate_arg_as_int (args : AdaNode.t) =
   (* Compute the index of the given args *)
@@ -786,9 +786,9 @@ and translate_discrete_choice (node : AdaNode.t) =
   match node with
   | #Lal_typ.discrete_range as discrete_range
     when Lal_typ.is_discrete_range discrete_range ->
-      Ada_ir.Expr.RangeChoice (translate_discrete_range discrete_range)
+      (translate_discrete_range discrete_range :> Ada_ir.Expr.discrete_choice)
   | #Expr.t as expr ->
-      ExprChoice (translate_expr (expr :> Expr.t))
+      `Expr (translate_expr (expr :> Expr.t))
   | #OthersDesignator.t ->
       Utils.legality_error
         "others should appear alone and be the last alternative of the \
