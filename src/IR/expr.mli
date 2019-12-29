@@ -68,6 +68,7 @@ and attribute_ref =
   | First of type_or_name * int option
   | Last of type_or_name * int option
   | Length of type_or_name * int option
+  | Result of funinfo
 
 and type_or_expr = [`Type of Typ.t | `Expr of t]
 
