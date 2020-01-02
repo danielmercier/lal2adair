@@ -1,3 +1,5 @@
 (library
    (name ada_ir)
+   (public_name ada_ir)
+   (flags (:standard -w -9) (-open Core_kernel))
    (libraries core_kernel libadalang))
