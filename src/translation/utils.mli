@@ -45,6 +45,7 @@ type attribute =
   | `Pos
   | `Succ
   | `Pred
+  | `Result
   | `Unknown of string ]
 
 val attribute : Identifier.t -> attribute

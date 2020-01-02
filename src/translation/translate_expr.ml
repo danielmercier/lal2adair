@@ -20,6 +20,14 @@ let funinfo (spec : BaseSubpSpec.t) =
       Utils.lal_error "Cannot find name for subprogram spec %a" Utils.pp_node spec
 
 
+let referenced_funinfo (expr : Expr.t) =
+  match expr with
+  | #Lal_typ.identifier as ident when Lal_typ.is_subprogram ident ->
+      let subp_spec = Utils.referenced_subp_spec ident in
+      Some (funinfo subp_spec)
+  | _ ->
+      None
+
 let fieldinfo (ident : Lal_typ.identifier) : IR.Expr.fieldinfo =
   {fieldname= Utils.defining_name ident}
 
@@ -511,12 +519,9 @@ and translate_fun_or_name (implicit_deref : bool) (expr : Expr.t) =
     | None ->
         Utils.legality_error "Expecting a name, got %a" IR.Expr.pp expr
   in
-  match expr with
-  | #Lal_typ.identifier as ident when Lal_typ.is_subprogram ident ->
-      let subp_spec = Utils.referenced_subp_spec ident in
-      `Fun (funinfo subp_spec)
-  | expr ->
-      `Name (name_from_expr (translate_expr expr))
+  match referenced_funinfo expr with
+  | Some info -> `Fun info
+  | None -> `Name (name_from_expr (translate_expr expr))
 
 
 and translate_attribute_ref (attribute_ref : AttributeRef.t) =
@@ -541,6 +546,11 @@ and translate_attribute_ref (attribute_ref : AttributeRef.t) =
           AttributeRef (Last (prefix, index_opt))
       | `Length ->
           AttributeRef (Length (prefix, index_opt)) )
+  | `Result -> (
+      match referenced_funinfo prefix with
+      | Some info -> AttributeRef (Result (info))
+      | None ->
+         Utils.legality_error "Expecting a function, got a %a" Utils.pp_node prefix)
   | _ ->
       Utils.unimplemented attribute_ref
 
