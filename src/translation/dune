@@ -3,4 +3,4 @@
    (public_name translation)
    (flags (:standard -w -9) (-open Core_kernel))
    (preprocess (pps ppx_nolazy))
-   (libraries core_kernel libadalang ada_ir))
+   (libraries core_kernel libadalang IR))

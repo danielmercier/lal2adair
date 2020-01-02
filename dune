@@ -1,4 +1,4 @@
 (library
    (name LAL2AdaIR)
    (public_name LAL2AdaIR)
-   (libraries core_kernel ada_ir translation))
+   (libraries core_kernel IR translation))
