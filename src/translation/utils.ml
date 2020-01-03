@@ -6,7 +6,9 @@ exception Legality_error of string
 
 let lal_error fmt = Format.kasprintf (fun msg -> raise (Lal_error msg)) fmt
 
-let legality_error fmt = Format.kasprintf (fun msg -> raise (Legality_error msg)) fmt
+let legality_error fmt =
+  Format.kasprintf (fun msg -> raise (Legality_error msg)) fmt
+
 
 let log_warning fmt = Format.printf fmt
 
@@ -20,7 +22,8 @@ let unimplemented node =
 let try_or_undefined property f node =
   try f node
   with PropertyError s ->
-    log_warning "Cannot evaluate %a, PropertyError on %s: %s" pp_node node property s ;
+    log_warning "Cannot evaluate %a, PropertyError on %s: %s" pp_node node
+      property s ;
     IR.Expr.(Name (undefined ()))
 
 
@@ -36,7 +39,8 @@ let defining_name name =
       | None ->
           lal_error "Cannot find a defining name for %a" pp_node name
     with PropertyError s ->
-      lal_error "Cannot find a defining name for %a: PropertyError %s" pp_node name s )
+      lal_error "Cannot find a defining name for %a: PropertyError %s" pp_node
+        name s )
 
 
 let referenced_subp_spec name =
@@ -60,7 +64,11 @@ let accessed_subp_spec name =
     | Some typ ->
         let rec access_subp_spec typ =
           let full_typ =
-            match BaseTypeDecl.p_full_view typ with Some full_typ -> full_typ | None -> typ
+            match BaseTypeDecl.p_full_view typ with
+            | Some full_typ ->
+                full_typ
+            | None ->
+                typ
           in
           match full_typ with
           | #TypeDecl.t as type_decl -> (
@@ -72,17 +80,21 @@ let accessed_subp_spec name =
                 | Some base_type ->
                     access_subp_spec base_type
                 | None ->
-                    lal_error "Cannot find base type for DerivedTypeDef %a" pp_node typ )
+                    lal_error "Cannot find base type for DerivedTypeDef %a"
+                      pp_node typ )
               | _ ->
-                  legality_error "%a should have an access to subprogram type" pp_node name )
+                  legality_error "%a should have an access to subprogram type"
+                    pp_node name )
           | _ ->
-              legality_error "%a should have an access to subprogram type" pp_node name
+              legality_error "%a should have an access to subprogram type"
+                pp_node name
         in
         access_subp_spec typ
     | None ->
         lal_error "Cannot find type expression for %a" pp_node name
   with PropertyError s ->
-    lal_error "Cannot find accessed subp spec for %a: PropertyError %s" pp_node name s
+    lal_error "Cannot find accessed subp spec for %a: PropertyError %s" pp_node
+      name s
 
 
 (** Type for various ada attributes *)
@@ -124,7 +136,9 @@ let attributes_assoc =
 let attribute =
   let tbl = Caml.Hashtbl.create (List.length attributes_assoc) in
   (* Fill the table with the association list above *)
-  List.iter ~f:(fun (key, value) -> Caml.Hashtbl.add tbl key value) attributes_assoc ;
+  List.iter
+    ~f:(fun (key, value) -> Caml.Hashtbl.add tbl key value)
+    attributes_assoc ;
   fun attribute ->
     let str = String.lowercase (AdaNode.text attribute) in
     Option.value (Caml.Hashtbl.find_opt tbl str) ~default:(`Unknown str)

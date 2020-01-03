@@ -14,7 +14,10 @@ val log_warning : ('a, Format.formatter, unit, unit) format4 -> 'a
 (** log the given warning *)
 
 val try_or_undefined :
-  string -> (([< AdaNode.t] as 'a) -> IR.Expr.expr_node) -> 'a -> IR.Expr.expr_node
+     string
+  -> (([< AdaNode.t] as 'a) -> IR.Expr.expr_node)
+  -> 'a
+  -> IR.Expr.expr_node
 (** if the given function raise an exception, log a message and return a
     undefined expression *)
 

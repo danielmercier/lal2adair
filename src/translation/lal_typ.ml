@@ -39,6 +39,7 @@ let map_property ~f ~default value =
     Utils.log_warning "PropertyError %s for %a" s Utils.pp_node value ;
     default
 
+
 let is_literal = function
   | #IntLiteral.t
   | #StringLiteral.t
@@ -59,6 +60,7 @@ let is_literal = function
       in
       map_property ~f ~default:false ident
 
+
 let is_variable ident =
   let f ident =
     match Name.p_referenced_decl ident with
@@ -71,6 +73,7 @@ let is_variable ident =
         false
   in
   map_property ~f ~default:false (ident :> identifier)
+
 
 let is_record_access dotted_name =
   let f dotted_name =
@@ -85,6 +88,7 @@ let is_record_access dotted_name =
   in
   map_property ~f ~default:false dotted_name
 
+
 let is_lvalue name =
   match (name :> Name.t) with
   | #Identifier.t as ident ->
@@ -94,6 +98,7 @@ let is_lvalue name =
   | _ ->
       (* Always return false otherwise for now *)
       false
+
 
 let is_subprogram ident =
   let f ident =
@@ -107,6 +112,7 @@ let is_subprogram ident =
         false
   in
   map_property ~f ~default:false (ident :> identifier)
+
 
 let is_call call =
   let f call =
@@ -132,6 +138,7 @@ let is_call call =
   in
   map_property ~f ~default:false (call :> call)
 
+
 let map_to_full_view ~default ~f typ =
   try
     let full_typ = Option.value ~default:typ (BaseTypeDecl.p_full_view typ) in
@@ -140,9 +147,11 @@ let map_to_full_view ~default ~f typ =
     Utils.log_warning "PropertyError %s for %a" s Utils.pp_node typ ;
     default
 
+
 let is_access_type typ =
   map_to_full_view ~f:BaseTypeDecl.p_is_access_type ~default:false
     (typ :> BaseTypeDecl.t)
+
 
 let is_range range =
   match%nolazy (range :> range) with
@@ -156,6 +165,7 @@ let is_range range =
         true
     | _ ->
         false )
+
 
 let is_discrete_range = function
   | #identifier as ident ->
