@@ -52,7 +52,19 @@ and membership_kind = In | NotIn
 
 and membership_choice = [`Expr of t | `Range of range | `Type of Typ.t]
 
-and varinfo = Source of {vname: Name.t} | Undefined
+and varinfo = Source of {vname: Name.t; vdecl: vardecl} | Undefined
+
+and vardecl = {decl_scope: decl_scope; decl_kind: decl_kind}
+
+and decl_scope = FunScope of funinfo | PackageScope
+
+and decl_kind =
+  | FormalVar of funinfo * varmode
+  | ReturnVar
+  | ForLoopVar of iterator_specification
+  | Variable
+
+and varmode = ModeIn | ModeOut | ModeInOut
 
 and fieldinfo = {fieldname: Name.t}
 

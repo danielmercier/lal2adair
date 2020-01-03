@@ -13,8 +13,8 @@ let name_from_expr (check_implicit : bool) (expr : IR.Expr.t) :
       None
 
 
-let funinfo (spec : BaseSubpSpec.t) =
-  match%nolazy spec with
+let funinfo (spec : [< BaseSubpSpec.t]) =
+  match%nolazy (spec :> BaseSubpSpec.t) with
   | `SubpSpec {f_subp_name= Some fname} ->
       IR.Expr.{fname}
   | _ ->
@@ -72,7 +72,75 @@ let rec translate_expr (expr : Expr.t) : IR.Expr.t =
 
 and translate_variable (var : Lal_typ.identifier) =
   let vname = Utils.defining_name var in
-  IR.Expr.Var (Source {vname})
+  let vdecl =
+    match Name.p_referenced_decl var with
+    | Some decl ->
+        translate_vardecl decl
+    | None ->
+        Utils.lal_error "Cannot find declaration for %a" Utils.pp_node var
+  in
+  IR.Expr.Var (Source {vname; vdecl})
+
+
+and translate_vardecl (decl : BasicDecl.t) =
+  let decl_scope =
+    (* Return the proc in which a declaration is in if it exists *)
+    let rec f = function
+      | #BaseSubpBody.t as subp ->
+          let subp_spec = BaseSubpBody.f_subp_spec subp in
+          Some (funinfo subp_spec)
+      | node ->
+          Option.bind ~f (AdaNode.parent node)
+    in
+    match Option.bind ~f (AdaNode.parent decl) with
+    | Some funinfo ->
+        IR.Expr.FunScope funinfo
+    | None ->
+        PackageScope
+  in
+  let decl_kind =
+    match%nolazy decl with
+    | `ParamSpec {f_mode} ->
+        let mode =
+          match f_mode with
+          | Some #ModeIn.t | Some #ModeDefault.t | None ->
+              IR.Expr.ModeIn
+          | Some #ModeInOut.t ->
+              ModeInOut
+          | Some #ModeOut.t ->
+              ModeOut
+        in
+        let rec find_funinfo = function
+          | #SubpSpec.t as subp_spec ->
+              funinfo subp_spec
+          | node -> (
+            match AdaNode.parent node with
+            | Some parent ->
+                find_funinfo parent
+            | None ->
+                Utils.lal_error
+                  "Cannot find subprogram specification for subprogram \
+                   parameter %a"
+                  Utils.pp_node decl )
+        in
+        IR.Expr.FormalVar (find_funinfo (decl :> AdaNode.t), mode)
+    | #ExtendedReturnStmtObjectDecl.t ->
+        ReturnVar
+    | #ForLoopVarDecl.t ->
+        let iterator_spec =
+          match AdaNode.parent decl with
+          | Some (#ForLoopSpec.t as loop_spec) ->
+              translate_iterator_specification loop_spec
+          | _ ->
+              Utils.lal_error
+                "Cannot find loop specification for loop var decl %a"
+                Utils.pp_node decl
+        in
+        ForLoopVar iterator_spec
+    | _ ->
+        Variable
+  in
+  {IR.Expr.decl_scope; decl_kind}
 
 
 and translate_record_access (name : DottedName.t) : IR.Expr.name =
