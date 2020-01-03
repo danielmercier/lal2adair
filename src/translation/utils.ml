@@ -24,7 +24,7 @@ let try_or_undefined property f node =
   with PropertyError s ->
     log_warning "Cannot evaluate %a, PropertyError on %s: %s" pp_node node
       property s ;
-    IR.Expr.(Name (undefined ()))
+    IR.Expr.Name (IR.Expr.undefined ())
 
 
 let defining_name name =

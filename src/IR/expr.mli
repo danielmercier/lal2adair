@@ -1,7 +1,9 @@
-type t = {node: expr_node; orig_node: Libadalang.Expr.t; typ: Typ.t}
+type 'a with_data = {node: 'a; orig_node: Libadalang.Expr.t; typ: Typ.t}
+
+type t = expr_node with_data
 
 and expr_node =
-  | Name of name
+  | Name of name_node
   | Const of const
   | Membership of t * membership_kind * membership_choice list
   | Raise of Name.t * t option
@@ -23,7 +25,9 @@ and iterator_specification =
 
 and iter_kind = Iterator of discrete_range | Iterable of name
 
-and name =
+and name = name_node with_data
+
+and name_node =
   | Var of varinfo
   | Enum of Enum.t
   | Deref of name
@@ -128,7 +132,7 @@ and discrete_choice =
 
 and case_expr_alternative = {choices: discrete_choice list; when_expr: t}
 
-val undefined : unit -> name
+val undefined : unit -> name_node
 (** return a undefined name *)
 
 val pp : Format.formatter -> t -> unit
