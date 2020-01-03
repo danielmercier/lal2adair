@@ -10,8 +10,7 @@ let pp_assign fmt assign =
   let expr = AssignStmt.f_expr assign in
   try
     let lal_expr = Translation.Translate_expr.translate_expr expr in
-    Format.fprintf fmt "%s = %a" (AdaNode.short_image expr) Ada_ir.Expr.pp
-      lal_expr
+    Format.fprintf fmt "%s = %a" (AdaNode.short_image expr) IR.Expr.pp lal_expr
   with exn ->
     Format.fprintf fmt "@[<v 2>Error translating %s:@ %s@]"
       (AdaNode.short_image expr) (Exn.to_string exn)
