@@ -7,8 +7,8 @@ let name_from_expr (check_implicit : bool) (expr : IR.Expr.t) :
   | Name name ->
       if check_implicit && Lal_typ.is_access_type expr.typ then
         (* Implicit deref *)
-        Some (Deref name)
-      else Some name
+        Some {expr with node= Deref {expr with node= name}}
+      else Some {expr with node= name}
   | _ ->
       None
 
@@ -35,39 +35,45 @@ let fieldinfo (ident : Lal_typ.identifier) : IR.Expr.fieldinfo =
   {fieldname= Utils.defining_name ident}
 
 
+let with_data orig_node node =
+  { IR.Expr.node
+  ; orig_node= (orig_node :> Expr.t)
+  ; typ= Translate_typ.translate_type_of_expr orig_node }
+
+
 let rec translate_expr (expr : Expr.t) : IR.Expr.t =
-  { node=
-      ( match%nolazy expr with
-      | #ContractCases.t as contract_cases ->
-          translate_contract_cases contract_cases
-      | `ParenExpr {f_expr} ->
-          (translate_expr (f_expr :> Expr.t)).node
-      | #UnOp.t as unop ->
-          translate_unop unop
-      | #BinOp.t as binop ->
-          translate_binop binop
-      | #MembershipExpr.t as membership_expr ->
-          translate_membership_expr membership_expr
-      | #BaseAggregate.t as base_aggregate ->
-          translate_base_aggregate base_aggregate
-      | #Name.t as name ->
-          translate_name name
-      | #BoxExpr.t as box_expr ->
-          translate_box_expr box_expr
-      | #IfExpr.t as if_expr ->
-          translate_if_expr if_expr
-      | #CaseExpr.t as case_expr ->
-          translate_case_expr case_expr
-      | #CaseExprAlternative.t as case_expr_alternative ->
-          translate_case_expr_alternative case_expr_alternative
-      | #QuantifiedExpr.t as quantified_expr ->
-          translate_quantified_expr quantified_expr
-      | #Allocator.t as allocator ->
-          translate_allocator allocator
-      | #RaiseExpr.t as raise_expr ->
-          translate_raise_expr raise_expr )
-  ; orig_node= expr
-  ; typ= Translate_typ.translate_type_of_expr expr }
+  let node =
+    match%nolazy expr with
+    | #ContractCases.t as contract_cases ->
+        translate_contract_cases contract_cases
+    | `ParenExpr {f_expr} ->
+        (translate_expr (f_expr :> Expr.t)).node
+    | #UnOp.t as unop ->
+        translate_unop unop
+    | #BinOp.t as binop ->
+        translate_binop binop
+    | #MembershipExpr.t as membership_expr ->
+        translate_membership_expr membership_expr
+    | #BaseAggregate.t as base_aggregate ->
+        translate_base_aggregate base_aggregate
+    | #Name.t as name ->
+        translate_name name
+    | #BoxExpr.t as box_expr ->
+        translate_box_expr box_expr
+    | #IfExpr.t as if_expr ->
+        translate_if_expr if_expr
+    | #CaseExpr.t as case_expr ->
+        translate_case_expr case_expr
+    | #CaseExprAlternative.t as case_expr_alternative ->
+        translate_case_expr_alternative case_expr_alternative
+    | #QuantifiedExpr.t as quantified_expr ->
+        translate_quantified_expr quantified_expr
+    | #Allocator.t as allocator ->
+        translate_allocator allocator
+    | #RaiseExpr.t as raise_expr ->
+        translate_raise_expr raise_expr
+  in
+  with_data expr node
 
 
 and translate_variable (var : Lal_typ.identifier) =
@@ -143,17 +149,18 @@ and translate_vardecl (decl : BasicDecl.t) =
   {IR.Expr.decl_scope; decl_kind}
 
 
-and translate_record_access (name : DottedName.t) : IR.Expr.name =
+and translate_record_access (name : DottedName.t) : IR.Expr.name_node =
   match DottedName.f_suffix name with
   | #Identifier.t as ident ->
-      let prefix = translate_expr (DottedName.f_prefix name :> Expr.t) in
+      let prefix = (DottedName.f_prefix name :> Expr.t) in
+      let prefix_expr = translate_expr prefix in
       let name =
-        match name_from_expr true prefix with
+        match name_from_expr true prefix_expr with
         | Some lval ->
             lval
         | None ->
             Utils.legality_error "Cannot access a field of a non lvalue: %a"
-              IR.Expr.pp prefix
+              Utils.pp_node prefix
       in
       Field (name, fieldinfo ident)
   | suffix ->
@@ -679,7 +686,7 @@ and translate_attribute_ref (attribute_ref : AttributeRef.t) =
       Utils.unimplemented attribute_ref
 
 
-and translate_call_expr (call_expr : CallExpr.t) : IR.Expr.name =
+and translate_call_expr (call_expr : CallExpr.t) : IR.Expr.name_node =
   (* Handle call expr other than subprogram call *)
   let name = CallExpr.f_name call_expr in
   match try Name.p_name_designated_type name with _ -> None with
@@ -844,7 +851,7 @@ and translate_type_expr (type_expr : TypeExpr.t) : IR.Expr.type_expr =
         type_expr
 
 
-and translate_qual_expr (qual_expr : QualExpr.t) : IR.Expr.name =
+and translate_qual_expr (qual_expr : QualExpr.t) : IR.Expr.name_node =
   let prefix = QualExpr.f_prefix qual_expr in
   let subtype_mark =
     match try Name.p_name_designated_type prefix with _ -> None with
@@ -877,7 +884,7 @@ and translate_if_expr (if_expr : IfExpr.t) =
     let then_expr =
       translate_expr (ElsifExprPart.f_then_expr alternative :> Expr.t)
     in
-    { IR.Expr.node= If (cond_expr, then_expr, else_expr)
+    { IR.Expr.node= IR.Expr.If (cond_expr, then_expr, else_expr)
     ; orig_node= (if_expr :> Expr.t)
     ; typ }
   in

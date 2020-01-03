@@ -1,7 +1,9 @@
-type t = {node: expr_node; orig_node: Libadalang.Expr.t; typ: Typ.t}
+type 'a with_data = {node: 'a; orig_node: Libadalang.Expr.t; typ: Typ.t}
+
+type t = expr_node with_data
 
 and expr_node =
-  | Name of name
+  | Name of name_node
   | Const of const
   | Membership of t * membership_kind * membership_choice list
   | Raise of Name.t * t option
@@ -23,7 +25,9 @@ and iterator_specification =
 
 and iter_kind = Iterator of discrete_range | Iterable of name
 
-and name =
+and name = name_node with_data
+
+and name_node =
   | Var of varinfo
   | Enum of Enum.t
   | Deref of name
@@ -147,23 +151,24 @@ let rec pp fmt {node} =
         Format.fprintf fmt "@[%a@]" Typ.pp typ
   in
   let rec pp_name fmt = function
-    | Var (Source {vname}) ->
-        Name.pp fmt vname
     | Var Undefined ->
         Format.pp_print_string fmt "undefined"
+    | Var (Source {vname}) ->
+        Name.pp fmt vname
     | Enum e ->
         Format.fprintf fmt "%a" Enum.pp e
     | Deref name ->
-        Format.fprintf fmt "%a.all" pp_name name
+        Format.fprintf fmt "%a.all" pp_name name.node
     | Index (name, indicies) ->
         let pp_sep fmt () = Format.fprintf fmt ",@ " in
-        Format.fprintf fmt "%a [%a]" pp_name name
+        Format.fprintf fmt "%a [%a]" pp_name name.node
           (Format.pp_print_list ~pp_sep pp)
           indicies
     | Slice (name, range) ->
-        Format.fprintf fmt "@[%a [%a]@]" pp_name name pp_discrete_range range
+        Format.fprintf fmt "@[%a [%a]@]" pp_name name.node pp_discrete_range
+          range
     | Field (name, {fieldname}) ->
-        Format.fprintf fmt "%a.%a" pp_name name Name.pp fieldname
+        Format.fprintf fmt "%a.%a" pp_name name.node Name.pp fieldname
     | AttributeRef attribute_ref ->
         Format.fprintf fmt "@[%a@]" pp_attribute_ref attribute_ref
     | Cast (typ, e) ->
@@ -181,8 +186,8 @@ let rec pp fmt {node} =
     | Cfun {fname}, args ->
         Format.fprintf fmt "@[<hv 2>%a@ (@[%a@])@]" Name.pp fname pp_args args
     | Pfun name, args ->
-        Format.fprintf fmt "@[<hv 2>%a.all@ (@[%a@])@]" pp_name name pp_args
-          args
+        Format.fprintf fmt "@[<hv 2>%a.all@ (@[%a@])@]" pp_name name.node
+          pp_args args
   and pp_index_arg fmt = function
     | Some index ->
         Format.fprintf fmt "(%d)" index
@@ -203,12 +208,12 @@ let rec pp fmt {node} =
         pp_range fmt range
   and pp_fun_or_name fmt = function
     | `Name name ->
-        Format.fprintf fmt "@[%a@]" pp_name name
+        Format.fprintf fmt "@[%a@]" pp_name name.node
     | `Fun {fname} ->
         Format.fprintf fmt "@[Fun(%a)@]" Name.pp fname
   and pp_type_or_name fmt = function
     | `Name name ->
-        Format.fprintf fmt "@[%a@]" pp_name name
+        Format.fprintf fmt "@[%a@]" pp_name name.node
     | `Type typ ->
         Format.fprintf fmt "@[Type(%a)@]" Typ.pp typ
   and pp_attribute_ref fmt = function
@@ -371,7 +376,7 @@ let rec pp fmt {node} =
           Format.fprintf fmt "in%a %a" pp_reversed reversed pp_discrete_range
             range
       | Iterable name ->
-          Format.fprintf fmt "of%a %a" pp_reversed reversed pp_name name
+          Format.fprintf fmt "of%a %a" pp_reversed reversed pp_name name.node
     in
     Format.fprintf fmt "%a %a" Name.pp var_name pp_iter_kind iter_kind
   in
