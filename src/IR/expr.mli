@@ -3,7 +3,8 @@ type 'a with_data = {node: 'a; orig_node: Libadalang.Expr.t; typ: Typ.t}
 type t = expr_node with_data
 
 and expr_node =
-  | Name of name_node
+  | Name of name
+  | AttributeRef of attribute_ref
   | Const of const
   | Membership of t * membership_kind * membership_choice list
   | Raise of Name.t * t option
@@ -28,18 +29,42 @@ and iter_kind = Iterator of discrete_range | Iterable of name
 and name = name_node with_data
 
 and name_node =
-  | Var of varinfo
-  | Enum of Enum.t
-  | Deref of name
-  | Index of name * t list
-  | Slice of name * discrete_range
-  | Field of name * fieldinfo
-  | AttributeRef of attribute_ref
-  | Cast of Typ.t * t
-  | FunctionCall of function_name * t list
-  | QualExpr of Typ.t * t
+  | Lval of lval
+  | Cast of cast with_offset
+  | QualExpr of qual_expr with_offset
+  | FunctionCall of function_call with_offset
+  | AccessOf of access_kind * fun_or_lval
 
-and const = Int of Int_lit.t | String of string | Null
+and cast = Typ.t * t
+
+and qual_expr = Typ.t * t
+
+and function_call = function_name * param list
+
+and param =
+  | InParam of t
+  | OutParam of lval_or_cast with_data
+  | InOutParam of lval_or_cast with_data
+
+and lval_or_cast = [`Lval of lval | `Cast of Typ.t * lval_or_cast]
+
+and access_kind = Access | Unchecked_Access | Unrestricted_Access | Address
+
+and lval = base * offset
+
+and base = Var of varinfo | Mem of name
+
+and offset = offset_node with_data
+
+and offset_node =
+  | NoOffset
+  | Index of offset * t list
+  | Slice of offset * discrete_range
+  | Field of offset * fieldinfo
+
+and 'a with_offset = 'a * offset
+
+and const = Int of Int_lit.t | String of string | Null | Enum of Enum.t
 
 and discrete_range =
   [`DiscreteType of Typ.t * range_constraint option | `Range of range]
@@ -77,10 +102,6 @@ and function_name = Cfun of funinfo | Pfun of name
 and funinfo = {fname: Name.t}
 
 and attribute_ref =
-  | Access of fun_or_name
-  | Unchecked_Access of fun_or_name
-  | Unrestricted_Access of fun_or_name
-  | Address of fun_or_name
   | First of type_or_name * int option
   | Last of type_or_name * int option
   | Length of type_or_name * int option
@@ -90,7 +111,7 @@ and type_or_expr = [`Type of Typ.t | `Expr of t]
 
 and type_or_name = [`Type of Typ.t | `Name of name]
 
-and fun_or_name = [`Fun of funinfo | `Name of name]
+and fun_or_lval = [`Fun of funinfo | `Lval of lval]
 
 and unop = Abs | Not | UnaryMinus | UnaryPlus
 
@@ -131,8 +152,5 @@ and discrete_choice =
   | `Range of range ]
 
 and case_expr_alternative = {choices: discrete_choice list; when_expr: t}
-
-val undefined : unit -> name_node
-(** return a undefined name *)
 
 val pp : Format.formatter -> t -> unit

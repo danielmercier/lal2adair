@@ -1,14 +1,14 @@
 open Libadalang
 
-(** translate an expression to a lvalue checking for an implicit deref *)
+(** translate an expression to a name checking for an implicit deref *)
 let name_from_expr (check_implicit : bool) (expr : IR.Expr.t) :
     IR.Expr.name option =
   match expr.node with
   | Name name ->
       if check_implicit && Lal_typ.is_access_type expr.typ then
         (* Implicit deref *)
-        Some {expr with node= Deref {expr with node= name}}
-      else Some {expr with node= name}
+        Some {expr with node= Lval (Mem name, {expr with node= NoOffset})}
+      else Some name
   | _ ->
       None
 
@@ -39,6 +39,53 @@ let with_data orig_node node =
   { IR.Expr.node
   ; orig_node= (orig_node :> Expr.t)
   ; typ= Translate_typ.translate_type_of_expr orig_node }
+
+
+let no_offset orig_node =
+  (* Make a NoOffset node from given data *)
+  with_data orig_node IR.Expr.NoOffset
+
+
+let append_offset ~f name =
+  (* If the given name can be offseted, call f with current offset of name *)
+  match name with
+  | IR.Expr.Lval (base, offset) ->
+      Some (IR.Expr.Lval (base, f offset))
+  | Cast (base, offset) ->
+      Some (Cast (base, f offset))
+  | QualExpr (base, offset) ->
+      Some (QualExpr (base, f offset))
+  | FunctionCall (base, offset) ->
+      Some (FunctionCall (base, f offset))
+  | AccessOf _ ->
+      None
+
+
+let undefined node =
+  IR.Expr.Name (with_data node (IR.Expr.Lval (Var Undefined, no_offset node)))
+
+
+let unimplemented node =
+  Utils.log_warning "%a is not implemented" Utils.pp_node node ;
+  undefined node
+
+
+let try_or_undefined property f node =
+  try f node
+  with PropertyError s ->
+    Utils.log_warning "Cannot evaluate %a, PropertyError on %s: %s"
+      Utils.pp_node node property s ;
+    undefined node
+
+
+let convert_mode mode =
+  match mode with
+  | Some #ModeIn.t | Some #ModeDefault.t | None ->
+      IR.Expr.ModeIn
+  | Some #ModeInOut.t ->
+      ModeInOut
+  | Some #ModeOut.t ->
+      ModeOut
 
 
 let rec translate_expr (expr : Expr.t) : IR.Expr.t =
@@ -85,7 +132,7 @@ and translate_variable (var : Lal_typ.identifier) =
     | None ->
         Utils.lal_error "Cannot find declaration for %a" Utils.pp_node var
   in
-  IR.Expr.Var (Source {vname; vdecl})
+  IR.Expr.(Lval (Var (Source {vname; vdecl}), no_offset var))
 
 
 and translate_vardecl (decl : BasicDecl.t) =
@@ -107,15 +154,6 @@ and translate_vardecl (decl : BasicDecl.t) =
   let decl_kind =
     match%nolazy decl with
     | `ParamSpec {f_mode} ->
-        let mode =
-          match f_mode with
-          | Some #ModeIn.t | Some #ModeDefault.t | None ->
-              IR.Expr.ModeIn
-          | Some #ModeInOut.t ->
-              ModeInOut
-          | Some #ModeOut.t ->
-              ModeOut
-        in
         let rec find_funinfo = function
           | #SubpSpec.t as subp_spec ->
               funinfo subp_spec
@@ -129,7 +167,8 @@ and translate_vardecl (decl : BasicDecl.t) =
                    parameter %a"
                   Utils.pp_node decl )
         in
-        IR.Expr.FormalVar (find_funinfo (decl :> AdaNode.t), mode)
+        IR.Expr.FormalVar
+          (find_funinfo (decl :> AdaNode.t), convert_mode f_mode)
     | #ExtendedReturnStmtObjectDecl.t ->
         ReturnVar
     | #ForLoopVarDecl.t ->
@@ -149,20 +188,28 @@ and translate_vardecl (decl : BasicDecl.t) =
   {IR.Expr.decl_scope; decl_kind}
 
 
-and translate_record_access (name : DottedName.t) : IR.Expr.name_node =
-  match DottedName.f_suffix name with
-  | #Identifier.t as ident ->
-      let prefix = (DottedName.f_prefix name :> Expr.t) in
+and translate_record_access (dotted_name : DottedName.t) : IR.Expr.name_node =
+  match DottedName.f_suffix dotted_name with
+  | #Identifier.t as ident -> (
+      let prefix = (DottedName.f_prefix dotted_name :> Expr.t) in
       let prefix_expr = translate_expr prefix in
       let name =
         match name_from_expr true prefix_expr with
-        | Some lval ->
-            lval
+        | Some name ->
+            name
         | None ->
             Utils.legality_error "Cannot access a field of a non lvalue: %a"
               Utils.pp_node prefix
       in
-      Field (name, fieldinfo ident)
+      let f offset =
+        with_data dotted_name (IR.Expr.Field (offset, fieldinfo ident))
+      in
+      match append_offset ~f name.node with
+      | Some name ->
+          name
+      | None ->
+          Utils.legality_error "Cannot get the field for %a" Utils.pp_node
+            prefix )
   | suffix ->
       (* For a record access, the only possible suffix is an identifier *)
       Utils.lal_error "Expecting an identifier for field, found %a"
@@ -178,7 +225,11 @@ and translate_unop (unop : UnOp.t) =
   match try Name.p_referenced_decl op with _ -> None with
   | Some _ ->
       let subp_spec = Utils.referenced_subp_spec op in
-      Name (FunctionCall (Cfun (funinfo subp_spec), [expr]))
+      let function_call =
+        IR.Expr.FunctionCall
+          ((Cfun (funinfo subp_spec), [InParam expr]), no_offset unop)
+      in
+      Name (with_data unop function_call)
   | None ->
       let operator =
         match op with
@@ -201,7 +252,12 @@ and translate_binop (binop : BinOp.t) =
   match try Name.p_referenced_decl op with _ -> None with
   | Some _ ->
       let subp_spec = Utils.referenced_subp_spec op in
-      Name (FunctionCall (Cfun (funinfo subp_spec), [lexpr; rexpr]))
+      let function_call =
+        IR.Expr.FunctionCall
+          ( (Cfun (funinfo subp_spec), [InParam lexpr; InParam rexpr])
+          , no_offset binop )
+      in
+      Name (with_data binop function_call)
   | None ->
       let operator =
         match op with
@@ -390,29 +446,34 @@ and translate_named_array_assoc (designators : AdaNode.t list)
 and translate_name (name : Name.t) : IR.Expr.expr_node =
   match name with
   | #Lal_typ.identifier as ident when Lal_typ.is_variable ident ->
-      Name (translate_variable ident)
+      Name (with_data name (translate_variable ident))
   | #DottedName.t as dotted_name when Lal_typ.is_record_access dotted_name ->
-      Name (translate_record_access dotted_name)
+      Name (with_data name (translate_record_access dotted_name))
   | #Lal_typ.literal as literal when Lal_typ.is_literal literal ->
       translate_literal literal
   | #Lal_typ.call as call when Lal_typ.is_call call ->
-      Name (translate_call call)
+      let function_call =
+        IR.Expr.FunctionCall (translate_call call, no_offset name)
+      in
+      Name (with_data name function_call)
   | #AttributeRef.t as attribute_ref ->
-      Name (translate_attribute_ref attribute_ref)
+      translate_attribute_ref attribute_ref
   | #ExplicitDeref.t as explicit_deref -> (
       let prefix = (ExplicitDeref.f_prefix explicit_deref :> Expr.t) in
       let prefix_expr = translate_expr prefix in
       match name_from_expr false prefix_expr with
       | Some name ->
-          Name (Deref name)
+          let lval = IR.Expr.(Lval (Mem name, no_offset explicit_deref)) in
+          Name (with_data explicit_deref lval)
       | None ->
           Utils.legality_error "Cannot deref a non lvalue: %a" IR.Expr.pp
             prefix_expr )
   | #CallExpr.t as call_expr ->
       (* Should not be a call *)
-      Name (translate_call_expr call_expr)
+      Name (with_data name (translate_call_expr call_expr))
   | #QualExpr.t as qual_expr ->
-      Name (translate_qual_expr qual_expr)
+      let qual_expr = translate_qual_expr qual_expr in
+      Name (with_data name (IR.Expr.QualExpr (qual_expr, no_offset name)))
   | _ ->
       Utils.legality_error "Unexpected %a" Utils.pp_node name
 
@@ -421,12 +482,12 @@ and translate_literal (literal : Lal_typ.literal) =
   let open IR.Expr in
   match%nolazy literal with
   | #IntLiteral.t as int_literal ->
-      Utils.try_or_undefined "IntLiteral.p_denoted_value"
+      try_or_undefined "IntLiteral.p_denoted_value"
         (fun n ->
           Const (Int (IR.Int_lit.of_int (IntLiteral.p_denoted_value n))) )
         int_literal
   | #StringLiteral.t as string_literal ->
-      Utils.try_or_undefined "StringLiteral.p_denoted_value"
+      try_or_undefined "StringLiteral.p_denoted_value"
         (fun n -> Const (String (StringLiteral.p_denoted_value n)))
         string_literal
   | #NullLiteral.t ->
@@ -434,25 +495,25 @@ and translate_literal (literal : Lal_typ.literal) =
   | #CharLiteral.t as char_lit ->
       (* A char literal is a regular enum. Use p_eval_as_int which correctly
          evaluates the position of the enum *)
-      Utils.try_or_undefined "Expr.p_eval_as_int"
+      try_or_undefined "Expr.p_eval_as_int"
         (fun n ->
           let name = AdaNode.text n in
-          Name
+          Const
             (Enum
                { IR.Enum.name= StdCharLiteral name
                ; pos= IR.Int_lit.of_int (Expr.p_eval_as_int n) }) )
         char_lit
   | #RealLiteral.t as real_literal ->
       (* Not implemented *)
-      Name (Utils.unimplemented real_literal)
+      unimplemented real_literal
   | #Lal_typ.identifier as ident ->
       (* Assume it denotes an enum. Otherwise, translate_literal should not
          have been called *)
       assert (Lal_typ.is_literal ident) ;
       let name = Utils.defining_name ident in
-      Utils.try_or_undefined "Expr.p_eval_as_int"
+      try_or_undefined "Expr.p_eval_as_int"
         (fun n ->
-          Name
+          Const
             (Enum
                { IR.Enum.name= EnumLiteral name
                ; pos= IR.Int_lit.of_int (Expr.p_eval_as_int n) }) )
@@ -486,12 +547,12 @@ and translate_call (call : Lal_typ.call) =
       (* Call to const function with self as arg *)
       let subp_spec = Utils.referenced_subp_spec ident in
       let args = translate_args subp_spec (add_self f_prefix subp_spec []) in
-      IR.Expr.FunctionCall (Cfun (funinfo subp_spec), args)
+      (IR.Expr.Cfun (funinfo subp_spec), args)
   | #Lal_typ.identifier as ident ->
       (* Call to const function with no args *)
       let subp_spec = Utils.referenced_subp_spec ident in
       let args = translate_args subp_spec [] in
-      FunctionCall (Cfun (funinfo subp_spec), args)
+      (Cfun (funinfo subp_spec), args)
   | `CallExpr
       {f_name= `DottedName {f_prefix} as ident; f_suffix= #AssocList.t as args}
     when Lal_typ.is_subprogram ident && Name.p_is_dot_call ident ->
@@ -501,18 +562,18 @@ and translate_call (call : Lal_typ.call) =
         add_self f_prefix subp_spec (AssocList.p_zip_with_params args)
       in
       let args = translate_args subp_spec param_actuals in
-      FunctionCall (Cfun (funinfo subp_spec), args)
+      (Cfun (funinfo subp_spec), args)
   | `CallExpr
       {f_name= #Lal_typ.identifier as ident; f_suffix= #AssocList.t as args}
     when Lal_typ.is_subprogram ident ->
       (* Const call with args *)
       let subp_spec = Utils.referenced_subp_spec ident in
       let args = translate_args subp_spec (AssocList.p_zip_with_params args) in
-      FunctionCall (Cfun (funinfo subp_spec), args)
+      (Cfun (funinfo subp_spec), args)
   | `ExplicitDeref {f_prefix} ->
       (* Call to non const function with no args *)
       let expr = translate_expr (f_prefix :> Expr.t) in
-      FunctionCall (Pfun (name_from_expr expr), [])
+      (Pfun (name_from_expr expr), [])
   | `CallExpr
       { f_name= `ExplicitDeref {f_prefix= called} | called
       ; f_suffix= #AssocList.t as args } ->
@@ -521,7 +582,7 @@ and translate_call (call : Lal_typ.call) =
       let subp_spec = Utils.accessed_subp_spec called in
       let expr = translate_expr (called :> Expr.t) in
       let args = translate_args subp_spec (AssocList.p_zip_with_params args) in
-      FunctionCall (Pfun (name_from_expr expr), args)
+      (Pfun (name_from_expr expr), args)
   | `CallExpr {f_suffix} ->
       Utils.legality_error "Args should be an AssocList, found %a"
         Utils.pp_node f_suffix
@@ -530,25 +591,45 @@ and translate_call (call : Lal_typ.call) =
 and translate_args (subp_spec : BaseSubpSpec.t)
     (param_actuals : ParamActual.t list) =
   let module DefiningNameMap = Caml.Map.Make (DefiningName) in
+  let rec as_lval_or_cast expr =
+    match expr.IR.Expr.node with
+    | IR.Expr.Name {node= Lval lval} ->
+        `Lval lval
+    | Name {node= Cast ((typ, e), {node= NoOffset})} ->
+        `Cast (typ, as_lval_or_cast e)
+    | _ ->
+        Utils.legality_error "Expected a variable, found %a" Utils.pp_node
+          expr.orig_node
+  in
+  let param_mode mode e =
+    match mode with
+    | IR.Expr.ModeIn ->
+        IR.Expr.InParam e
+    | ModeOut ->
+        OutParam {e with node= as_lval_or_cast e}
+    | ModeInOut ->
+        InOutParam {e with node= as_lval_or_cast e}
+  in
   (* First gather all ids of params in the right order *)
   let params = BaseSubpSpec.p_params subp_spec in
   let formals_with_default =
-    let prepend_ids default_expr ids current_formals =
+    let prepend_ids param_mode default_expr ids current_formals =
       List.fold_right
-        ~f:(fun id acc -> (id, default_expr) :: acc)
+        ~f:(fun id acc -> (id, param_mode, default_expr) :: acc)
         ~init:current_formals ids
     in
     let prepend_param param current_formals =
       let default_expr = (ParamSpec.f_default_expr param :> Expr.t option) in
+      let param_mode = convert_mode (ParamSpec.f_mode param) in
       let ids = DefiningNameList.f_list (ParamSpec.f_ids param) in
-      prepend_ids default_expr ids current_formals
+      prepend_ids param_mode default_expr ids current_formals
     in
     List.fold_right ~f:prepend_param ~init:[] params
   in
   (* Then fill the map with each position *)
   let pos_map =
     List.foldi
-      ~f:(fun i map (id, _) -> DefiningNameMap.add id i map)
+      ~f:(fun i map (id, _, _) -> DefiningNameMap.add id i map)
       ~init:DefiningNameMap.empty formals_with_default
   in
   let find_pos id =
@@ -579,17 +660,17 @@ and translate_args (subp_spec : BaseSubpSpec.t)
       Utils.pp_node subp_spec ;
   let rec build_args formals actuals =
     match (formals, actuals) with
-    | ( (id_formal, _) :: formals
+    | ( (id_formal, mode, _) :: formals
       , {ParamActual.param= Some id_actual; actual= Some actual} :: actuals )
       when DefiningName.equal id_formal id_actual ->
         (* id_formal and id_actual are the same, translate the actual
            expression *)
-        translate_expr actual :: build_args formals actuals
-    | (_, Some formal) :: formals, actuals ->
+        param_mode mode (translate_expr actual) :: build_args formals actuals
+    | (_, mode, Some formal) :: formals, actuals ->
         (* Since actuals are sorted according to params, if id_actual and
            id_formal are different, we should use a default expression *)
-        translate_expr formal :: build_args formals actuals
-    | (id_formal, None) :: _, _ ->
+        param_mode mode (translate_expr formal) :: build_args formals actuals
+    | (id_formal, _, None) :: _, _ ->
         Utils.legality_error "No default expr for parameter %a" Utils.pp_node
           id_formal
     | [], {ParamActual.param= Some id_actual} :: _ ->
@@ -635,34 +716,44 @@ and translate_type_or_name (implicit_deref : bool) (expr : Expr.t) =
       `Name (name_from_expr e)
 
 
-and translate_fun_or_name (implicit_deref : bool) (expr : Expr.t) =
+and translate_fun_or_lval (implicit_deref : bool) (expr : Expr.t) =
   (* Translate the given expr as a subprogram or a name *)
-  let name_from_expr expr =
+  let lval_from_expr expr =
     match name_from_expr implicit_deref expr with
-    | Some name ->
-        name
-    | None ->
-        Utils.legality_error "Expecting a name, got %a" IR.Expr.pp expr
+    | Some {node= Lval lval} ->
+        lval
+    | _ ->
+        Utils.legality_error "Expecting a variable, got %a" IR.Expr.pp expr
   in
   match referenced_funinfo expr with
   | Some info ->
       `Fun info
   | None ->
-      `Name (name_from_expr (translate_expr expr))
+      `Lval (lval_from_expr (translate_expr expr))
 
 
 and translate_attribute_ref (attribute_ref : AttributeRef.t) =
   let attribute = Utils.attribute (AttributeRef.f_attribute attribute_ref) in
   let prefix = (AttributeRef.f_prefix attribute_ref :> Expr.t) in
   match attribute with
-  | `Access ->
-      IR.Expr.AttributeRef (Access (translate_fun_or_name false prefix))
-  | `Unchecked_Access ->
-      AttributeRef (Unchecked_Access (translate_fun_or_name false prefix))
-  | `Unrestricted_Access ->
-      AttributeRef (Unrestricted_Access (translate_fun_or_name false prefix))
-  | `Address ->
-      AttributeRef (Address (translate_fun_or_name false prefix))
+  | (`Access | `Unchecked_Access | `Unrestricted_Access | `Address) as
+    access_kind ->
+      let access_kind =
+        match access_kind with
+        | `Access ->
+            IR.Expr.Access
+        | `Unchecked_Access ->
+            Unchecked_Access
+        | `Unrestricted_Access ->
+            Unrestricted_Access
+        | `Address ->
+            Address
+      in
+      let access =
+        with_data attribute_ref
+          (IR.Expr.AccessOf (access_kind, translate_fun_or_lval false prefix))
+      in
+      IR.Expr.Name access
   | (`First | `Last | `Length) as attribute -> (
       let prefix = translate_type_or_name true prefix in
       let index_opt =
@@ -683,7 +774,7 @@ and translate_attribute_ref (attribute_ref : AttributeRef.t) =
         Utils.legality_error "Expecting a function, got a %a" Utils.pp_node
           prefix )
   | _ ->
-      Utils.unimplemented attribute_ref
+      unimplemented attribute_ref
 
 
 and translate_call_expr (call_expr : CallExpr.t) : IR.Expr.name_node =
@@ -695,7 +786,7 @@ and translate_call_expr (call_expr : CallExpr.t) : IR.Expr.name_node =
       match%nolazy CallExpr.f_suffix call_expr with
       | `AssocList {list= [`ParamAssoc {f_r_expr}]} ->
           let suffix_expr = translate_expr (f_r_expr :> Expr.t) in
-          Cast (typ, suffix_expr)
+          Cast ((typ, suffix_expr), no_offset call_expr)
       | suffix ->
           Utils.legality_error
             "Expect an AssocList with one element for a type cast, found %a"
@@ -712,16 +803,16 @@ and translate_call_expr (call_expr : CallExpr.t) : IR.Expr.name_node =
             Utils.legality_error "Cannot access an index of a non lvalue: %a"
               IR.Expr.pp name_expr
       in
-      let suffix = CallExpr.f_suffix call_expr in
       if CallExpr.p_is_array_slice call_expr then
-        translate_array_slice name suffix
-      else translate_array_index name suffix
+        translate_array_slice name call_expr
+      else translate_array_index name call_expr
 
 
-and translate_array_index name suffix =
+and translate_array_index name call_expr =
   (* Regular array access *)
+  let suffix = CallExpr.f_suffix call_expr in
   match%nolazy suffix with
-  | `AssocList {list= assoc_list} ->
+  | `AssocList {list= assoc_list} -> (
       (* translate each index *)
       let translate_assoc =
         function%nolazy
@@ -733,28 +824,53 @@ and translate_array_index name suffix =
               Utils.pp_node assoc
       in
       let index = List.map ~f:translate_assoc assoc_list in
-      Index (name, index)
+      let f offset = with_data call_expr (IR.Expr.Index (offset, index)) in
+      match append_offset ~f name.node with
+      | Some name ->
+          name
+      | None ->
+          Utils.legality_error "Cannot get the index for %a" Utils.pp_node
+            (CallExpr.f_name call_expr) )
   | _ ->
       Utils.legality_error
         "Expect an AssocList with one element for a type cast, found %a"
         Utils.pp_node suffix
 
 
-and translate_array_slice name suffix =
+and translate_array_slice name call_expr =
   (* Array slicing *)
+  let suffix = CallExpr.f_suffix call_expr in
   match%nolazy suffix with
   | `AssocList {list= [`ParamAssoc {f_r_expr}]} -> (
     match (f_r_expr :> AdaNode.t) with
-    | #Lal_typ.discrete_range as range ->
-        IR.Expr.Slice (name, translate_discrete_range range)
+    | #Lal_typ.discrete_range as range -> (
+        let f offset =
+          with_data call_expr
+            (IR.Expr.Slice (offset, translate_discrete_range range))
+        in
+        match append_offset ~f name.node with
+        | Some name ->
+            name
+        | None ->
+            Utils.legality_error "Cannot get a slice for %a" Utils.pp_node
+              (CallExpr.f_name call_expr) )
     | _ ->
         Utils.legality_error "Expect an range for an array slice, found %a"
           Utils.pp_node f_r_expr )
-  | #Lal_typ.discrete_range as range ->
+  | #Lal_typ.discrete_range as range -> (
       (* All possibilities does not translate to an assoc list. For example,
          a DiscreteSubtypeIndication is directly here instead of under an
          assoc list *)
-      Slice (name, translate_discrete_range range)
+      let f offset =
+        with_data call_expr
+          (IR.Expr.Slice (offset, translate_discrete_range range))
+      in
+      match append_offset ~f name.node with
+      | Some name ->
+          name
+      | None ->
+          Utils.legality_error "Cannot get a slice for %a" Utils.pp_node
+            (CallExpr.f_name call_expr) )
   | _ ->
       Utils.legality_error "Expect an range for an array slice, found %a"
         Utils.pp_node suffix
@@ -851,7 +967,7 @@ and translate_type_expr (type_expr : TypeExpr.t) : IR.Expr.type_expr =
         type_expr
 
 
-and translate_qual_expr (qual_expr : QualExpr.t) : IR.Expr.name_node =
+and translate_qual_expr (qual_expr : QualExpr.t) : IR.Expr.qual_expr =
   let prefix = QualExpr.f_prefix qual_expr in
   let subtype_mark =
     match try Name.p_name_designated_type prefix with _ -> None with
@@ -863,7 +979,7 @@ and translate_qual_expr (qual_expr : QualExpr.t) : IR.Expr.name_node =
           Utils.pp_node prefix
   in
   let suffix = translate_expr (QualExpr.f_suffix qual_expr :> Expr.t) in
-  QualExpr (subtype_mark, suffix)
+  (subtype_mark, suffix)
 
 
 and translate_box_expr (_box_expr : BoxExpr.t) = assert false
@@ -1008,12 +1124,9 @@ and translate_allocator (allocator : Allocator.t) =
   | #SubtypeIndication.t as subtype_indication ->
       let type_expr = translate_type_expr (subtype_indication :> TypeExpr.t) in
       IR.Expr.Allocator (type_expr, None)
-  | #QualExpr.t as qual_expr -> (
-    match translate_qual_expr qual_expr with
-    | QualExpr (typ, expr) ->
-        Allocator ((typ, None), Some expr)
-    | _ ->
-        assert false )
+  | #QualExpr.t as qual_expr ->
+      let typ, expr = translate_qual_expr qual_expr in
+      Allocator ((typ, None), Some expr)
 
 
 and translate_raise_expr (raise_expr : RaiseExpr.t) =
