@@ -3,7 +3,8 @@ type 'a with_data = {node: 'a; orig_node: Libadalang.Expr.t; typ: Typ.t}
 type t = expr_node with_data
 
 and expr_node =
-  | Name of name_node
+  | Name of name
+  | AttributeRef of attribute_ref
   | Const of const
   | Membership of t * membership_kind * membership_choice list
   | Raise of Name.t * t option
@@ -28,18 +29,42 @@ and iter_kind = Iterator of discrete_range | Iterable of name
 and name = name_node with_data
 
 and name_node =
-  | Var of varinfo
-  | Enum of Enum.t
-  | Deref of name
-  | Index of name * t list
-  | Slice of name * discrete_range
-  | Field of name * fieldinfo
-  | AttributeRef of attribute_ref
-  | Cast of Typ.t * t
-  | FunctionCall of function_name * t list
-  | QualExpr of Typ.t * t
+  | Lval of lval
+  | Cast of cast with_offset
+  | QualExpr of qual_expr with_offset
+  | FunctionCall of function_call with_offset
+  | AccessOf of access_kind * fun_or_lval
 
-and const = Int of Int_lit.t | String of string | Null
+and cast = Typ.t * t
+
+and qual_expr = Typ.t * t
+
+and function_call = function_name * param list
+
+and param =
+  | InParam of t
+  | OutParam of lval_or_cast with_data
+  | InOutParam of lval_or_cast with_data
+
+and lval_or_cast = [`Lval of lval | `Cast of Typ.t * lval_or_cast]
+
+and access_kind = Access | Unchecked_Access | Unrestricted_Access | Address
+
+and lval = base * offset
+
+and base = Var of varinfo | Mem of name
+
+and offset = offset_node with_data
+
+and offset_node =
+  | NoOffset
+  | Index of offset * t list
+  | Slice of offset * discrete_range
+  | Field of offset * fieldinfo
+
+and 'a with_offset = 'a * offset
+
+and const = Int of Int_lit.t | String of string | Null | Enum of Enum.t
 
 and discrete_range =
   [`DiscreteType of Typ.t * range_constraint option | `Range of range]
@@ -77,10 +102,6 @@ and function_name = Cfun of funinfo | Pfun of name
 and funinfo = {fname: Name.t}
 
 and attribute_ref =
-  | Access of fun_or_name
-  | Unchecked_Access of fun_or_name
-  | Unrestricted_Access of fun_or_name
-  | Address of fun_or_name
   | First of type_or_name * int option
   | Last of type_or_name * int option
   | Length of type_or_name * int option
@@ -90,7 +111,7 @@ and type_or_expr = [`Type of Typ.t | `Expr of t]
 
 and type_or_name = [`Type of Typ.t | `Name of name]
 
-and fun_or_name = [`Fun of funinfo | `Name of name]
+and fun_or_lval = [`Fun of funinfo | `Lval of lval]
 
 and unop = Abs | Not | UnaryMinus | UnaryPlus
 
@@ -132,8 +153,6 @@ and discrete_choice =
 
 and case_expr_alternative = {choices: discrete_choice list; when_expr: t}
 
-let undefined () = Var Undefined
-
 let rec pp fmt {node} =
   let pp_const fmt = function
     | Int i ->
@@ -142,6 +161,8 @@ let rec pp fmt {node} =
         Format.fprintf fmt "%s" s
     | Null ->
         Format.fprintf fmt "null"
+    | Enum e ->
+        Format.fprintf fmt "%a" Enum.pp e
   in
   let pp_type_expr fmt type_expr =
     match type_expr with
@@ -150,37 +171,72 @@ let rec pp fmt {node} =
     | typ, None ->
         Format.fprintf fmt "@[%a@]" Typ.pp typ
   in
-  let rec pp_name fmt = function
+  let rec pp_offset : type a.
+      (Format.formatter -> a -> unit) -> Format.formatter -> a * offset -> unit
+      =
+   fun pp_base fmt (base, offset) ->
+    match offset.node with
+    | NoOffset ->
+        pp_base fmt base
+    | Index (offset, indicies) ->
+        let pp_sep fmt () = Format.fprintf fmt ",@ " in
+        Format.fprintf fmt "%a [%a]" (pp_offset pp_base) (base, offset)
+          (Format.pp_print_list ~pp_sep pp)
+          indicies
+    | Slice (offset, range) ->
+        Format.fprintf fmt "@[%a [%a]@]" (pp_offset pp_base) (base, offset)
+          pp_discrete_range range
+    | Field (offset, {fieldname}) ->
+        Format.fprintf fmt "%a.%a" (pp_offset pp_base) (base, offset) Name.pp
+          fieldname
+  and pp_base fmt = function
     | Var Undefined ->
         Format.pp_print_string fmt "undefined"
     | Var (Source {vname}) ->
         Name.pp fmt vname
-    | Enum e ->
-        Format.fprintf fmt "%a" Enum.pp e
-    | Deref name ->
+    | Mem name ->
         Format.fprintf fmt "%a.all" pp_name name.node
-    | Index (name, indicies) ->
-        let pp_sep fmt () = Format.fprintf fmt ",@ " in
-        Format.fprintf fmt "%a [%a]" pp_name name.node
-          (Format.pp_print_list ~pp_sep pp)
-          indicies
-    | Slice (name, range) ->
-        Format.fprintf fmt "@[%a [%a]@]" pp_name name.node pp_discrete_range
-          range
-    | Field (name, {fieldname}) ->
-        Format.fprintf fmt "%a.%a" pp_name name.node Name.pp fieldname
-    | AttributeRef attribute_ref ->
-        Format.fprintf fmt "@[%a@]" pp_attribute_ref attribute_ref
-    | Cast (typ, e) ->
-        Format.fprintf fmt "@[%a (%a)@]" Typ.pp typ pp e
-    | FunctionCall (function_name, args) ->
-        Format.fprintf fmt "@[%a@]" pp_function_call (function_name, args)
-    | QualExpr (typ, e) ->
-        Format.fprintf fmt "@[%a'(%a)@]" Typ.pp typ pp e
+  and pp_lval fmt lval = pp_offset pp_base fmt lval
+  and pp_cast fmt (typ, e) = Format.fprintf fmt "@[%a (%a)@]" Typ.pp typ pp e
+  and pp_qual_expr fmt (typ, e) =
+    Format.fprintf fmt "@[%a'(%a)@]" Typ.pp typ pp e
+  and pp_name fmt = function
+    | Lval lval ->
+        pp_lval fmt lval
+    | Cast cast ->
+        pp_offset pp_cast fmt cast
+    | QualExpr qual_expr ->
+        pp_offset pp_qual_expr fmt qual_expr
+    | FunctionCall function_call ->
+        pp_offset pp_function_call fmt function_call
+    | AccessOf (access_kind, fun_or_lval) ->
+        Format.fprintf fmt "@[%a'%a@]" pp_access_kind access_kind
+          pp_fun_or_lval fun_or_lval
+  and pp_access_kind fmt = function
+    | Access ->
+        Format.pp_print_string fmt "Access"
+    | Unchecked_Access ->
+        Format.pp_print_string fmt "Unchecked_Access"
+    | Unrestricted_Access ->
+        Format.pp_print_string fmt "Unrestricted_Access"
+    | Address ->
+        Format.pp_print_string fmt "Address"
   and pp_function_call fmt function_call =
+    let rec pp_lval_or_cast fmt = function
+      | `Lval lval ->
+          pp_lval fmt lval
+      | `Cast (typ, lval_or_cast) ->
+          Format.fprintf fmt "%a (%a)" Typ.pp typ pp_lval_or_cast lval_or_cast
+    in
+    let pp_arg fmt = function
+      | InParam e ->
+          pp fmt e
+      | OutParam lval_or_cast | InOutParam lval_or_cast ->
+          pp_lval_or_cast fmt lval_or_cast.node
+    in
     let pp_args =
       let pp_sep fmt () = Format.fprintf fmt ",@ " in
-      Format.pp_print_list ~pp_sep pp
+      Format.pp_print_list ~pp_sep pp_arg
     in
     match function_call with
     | Cfun {fname}, args ->
@@ -206,9 +262,9 @@ let rec pp fmt {node} =
         Format.fprintf fmt "@[%a no range@]" Typ.pp typ
     | `Range range ->
         pp_range fmt range
-  and pp_fun_or_name fmt = function
-    | `Name name ->
-        Format.fprintf fmt "@[%a@]" pp_name name.node
+  and pp_fun_or_lval fmt = function
+    | `Lval lval ->
+        pp_lval fmt lval
     | `Fun {fname} ->
         Format.fprintf fmt "@[Fun(%a)@]" Name.pp fname
   and pp_type_or_name fmt = function
@@ -217,14 +273,6 @@ let rec pp fmt {node} =
     | `Type typ ->
         Format.fprintf fmt "@[Type(%a)@]" Typ.pp typ
   and pp_attribute_ref fmt = function
-    | Access prefix ->
-        Format.fprintf fmt "@[%a'Access@]" pp_fun_or_name prefix
-    | Unchecked_Access prefix ->
-        Format.fprintf fmt "@[%a'Unchecked_Access@]" pp_fun_or_name prefix
-    | Unrestricted_Access prefix ->
-        Format.fprintf fmt "@[%a'Unrestricted_Access@]" pp_fun_or_name prefix
-    | Address prefix ->
-        Format.fprintf fmt "@[%a'Address@]" pp_fun_or_name prefix
     | First (prefix, index) ->
         Format.fprintf fmt "@[%a'First%a@]" pp_type_or_name prefix pp_index_arg
           index
@@ -391,10 +439,12 @@ let rec pp fmt {node} =
       pp_iterator_specification iterator_specification pp predicate
   in
   match node with
+  | Name name ->
+      Format.fprintf fmt "@[%a@]" pp_name name.node
   | Const const ->
       Format.fprintf fmt "@[%a@]" pp_const const
-  | Name name ->
-      Format.fprintf fmt "@[%a@]" pp_name name
+  | AttributeRef attribute_ref ->
+      Format.fprintf fmt "@[%a@]" pp_attribute_ref attribute_ref
   | Membership (expr, kind, choices) ->
       let pp_kind fmt = function
         | In ->

@@ -13,17 +13,6 @@ val legality_error : ('a, Format.formatter, unit, _) format4 -> 'a
 val log_warning : ('a, Format.formatter, unit, unit) format4 -> 'a
 (** log the given warning *)
 
-val try_or_undefined :
-     string
-  -> (([< AdaNode.t] as 'a) -> IR.Expr.expr_node)
-  -> 'a
-  -> IR.Expr.expr_node
-(** if the given function raise an exception, log a message and return a
-    undefined expression *)
-
-val unimplemented : [< AdaNode.t] -> IR.Expr.name_node
-(** log a warning about not implemented node and return undefined *)
-
 val defining_name : [< Lal_typ.identifier] -> IR.Name.t
 (** given a lal name, return a defining name using name resolution *)
 

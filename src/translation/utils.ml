@@ -14,19 +14,6 @@ let log_warning fmt = Format.printf fmt
 
 let pp_node fmt n = Format.pp_print_string fmt (AdaNode.short_image n)
 
-let unimplemented node =
-  log_warning "%a is not implemented" pp_node node ;
-  IR.Expr.undefined ()
-
-
-let try_or_undefined property f node =
-  try f node
-  with PropertyError s ->
-    log_warning "Cannot evaluate %a, PropertyError on %s: %s" pp_node node
-      property s ;
-    IR.Expr.Name (IR.Expr.undefined ())
-
-
 let defining_name name =
   match (name :> Name.t) with
   | #DefiningName.t as defining_name ->
