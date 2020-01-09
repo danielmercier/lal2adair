@@ -14,6 +14,18 @@ let log_warning fmt = Format.printf fmt
 
 let pp_node fmt n = Format.pp_print_string fmt (AdaNode.short_image n)
 
+let decl_defining_name basic_decl =
+  try
+    match BasicDecl.p_defining_name basic_decl with
+    | Some def_name ->
+        def_name
+    | None ->
+        lal_error "Cannot find a defining name for %a" pp_node basic_decl
+  with PropertyError s ->
+    lal_error "Cannot find a defining name for %a: PropertyError %s" pp_node
+      basic_decl s
+
+
 let defining_name name =
   match (name :> Name.t) with
   | #DefiningName.t as defining_name ->

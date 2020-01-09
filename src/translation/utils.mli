@@ -16,6 +16,9 @@ val log_warning : ('a, Format.formatter, unit, unit) format4 -> 'a
 val defining_name : [< Lal_typ.identifier] -> IR.Name.t
 (** given a lal name, return a defining name using name resolution *)
 
+val decl_defining_name : [< BasicDecl.t] -> IR.Name.t
+(** given a declaration, return a unique defining name for this declaration *)
+
 val referenced_subp_spec : [< Name.t] -> BaseSubpSpec.t
 (** assuming given name refers to a subprogram, return its specification.
     Otherwise, raise a legality error *)
