@@ -1,13 +1,19 @@
 open Libadalang
 
+let global_tenv = IR.Typ.mk_empty_temv ()
+
 (** translate an expression to a name checking for an implicit deref *)
 let name_from_expr (check_implicit : bool) (expr : IR.Expr.t) :
     IR.Expr.name option =
   match expr.node with
   | Name name ->
-      if check_implicit && Lal_typ.is_access_type expr.typ then
-        (* Implicit deref *)
-        Some {expr with node= Lval (Mem name, {expr with node= NoOffset})}
+      if check_implicit then
+        match expr.typ.desc with
+        | IR.Typ.Access _ ->
+            (* Implicit deref *)
+            Some {expr with node= Lval (Mem name, {expr with node= NoOffset})}
+        | _ ->
+            Some name
       else Some name
   | _ ->
       None
@@ -35,47 +41,23 @@ let fieldinfo (ident : Lal_typ.identifier) : IR.Expr.fieldinfo =
   {fieldname= Utils.defining_name ident}
 
 
-let with_data orig_node node =
-  { IR.Expr.node
-  ; orig_node= (orig_node :> Expr.t)
-  ; typ= Translate_typ.translate_type_of_expr orig_node }
-
-
-let no_offset orig_node =
-  (* Make a NoOffset node from given data *)
-  with_data orig_node IR.Expr.NoOffset
-
-
 let append_offset ~f name =
   (* If the given name can be offseted, call f with current offset of name *)
   match name with
   | IR.Expr.Lval (base, offset) ->
-      Some (IR.Expr.Lval (base, f offset))
+      let offset = f offset in
+      Some {offset with IR.Expr.node= IR.Expr.Lval (base, offset)}
   | Cast (base, offset) ->
-      Some (Cast (base, f offset))
+      let offset = f offset in
+      Some {offset with node= Cast (base, offset)}
   | QualExpr (base, offset) ->
-      Some (QualExpr (base, f offset))
+      let offset = f offset in
+      Some {offset with node= QualExpr (base, offset)}
   | FunctionCall (base, offset) ->
-      Some (FunctionCall (base, f offset))
+      let offset = f offset in
+      Some {offset with node= FunctionCall (base, offset)}
   | AccessOf _ ->
       None
-
-
-let undefined node =
-  IR.Expr.Name (with_data node (IR.Expr.Lval (Var Undefined, no_offset node)))
-
-
-let unimplemented node =
-  Utils.log_warning "%a is not implemented" Utils.pp_node node ;
-  undefined node
-
-
-let try_or_undefined property f node =
-  try f node
-  with PropertyError s ->
-    Utils.log_warning "Cannot evaluate %a, PropertyError on %s: %s"
-      Utils.pp_node node property s ;
-    undefined node
 
 
 let convert_mode mode =
@@ -88,39 +70,95 @@ let convert_mode mode =
       ModeOut
 
 
+let mk orig_node desc =
+  { IR.Typ.desc
+  ; aspects= []
+  ; name= Name (Utils.decl_defining_name orig_node)
+  ; parent_type= None
+  ; orig_node= (orig_node :> BaseTypeDecl.t) }
+
+
+let int64_desc =
+  let min_int = IR.Int_lit.of_string "-0x8000000000000000" in
+  let max_int = IR.Int_lit.of_string "0x7FFFFFFFFFFFFFFF" in
+  IR.Typ.Discrete (Signed (Static (Int min_int), Static (Int max_int)))
+
+
+let get_aspects basic_decl =
+  try
+    if (BasicDecl.p_get_aspect basic_decl "volatile").exists then
+      [IR.Typ.Volatile]
+    else []
+  with _ -> []
+
+
+let merge_aspects l_aspects r_aspects =
+  List.dedup_and_sort ~compare:Pervasives.compare (l_aspects @ r_aspects)
+
+
+let char_desc = IR.Typ.Discrete (Enum (Character (IR.Int_lit.of_int 256)))
+
+let wide_char_desc =
+  IR.Typ.Discrete (Enum (Character (IR.Int_lit.of_int 65536)))
+
+
+let wide_wide_char_desc =
+  IR.Typ.Discrete (Enum (Character (IR.Int_lit.of_int 2147483648)))
+
+
+let with_data (orig_node : [< Expr.t]) (typ : IR.Typ.t) (node : 'a) =
+  {IR.Expr.node; orig_node= (orig_node :> Expr.t); typ}
+
+
+(** Make a NoOffset node from given data *)
+let no_offset orig_node typ = with_data orig_node typ IR.Expr.NoOffset
+
+let undefined node typ =
+  with_data node typ
+    (IR.Expr.Name
+       (with_data node typ (IR.Expr.Lval (Var Undefined, no_offset node typ))))
+
+
+let try_or_undefined property f node typ =
+  try with_data node typ (f node)
+  with PropertyError s ->
+    Utils.log_warning "Cannot evaluate %a, PropertyError on %s: %s"
+      Utils.pp_node node property s ;
+    undefined node typ
+
+
+let unimplemented = undefined
+
 let rec translate_expr (expr : Expr.t) : IR.Expr.t =
-  let node =
-    match%nolazy expr with
-    | #ContractCases.t as contract_cases ->
-        translate_contract_cases contract_cases
-    | `ParenExpr {f_expr} ->
-        (translate_expr (f_expr :> Expr.t)).node
-    | #UnOp.t as unop ->
-        translate_unop unop
-    | #BinOp.t as binop ->
-        translate_binop binop
-    | #MembershipExpr.t as membership_expr ->
-        translate_membership_expr membership_expr
-    | #BaseAggregate.t as base_aggregate ->
-        translate_base_aggregate base_aggregate
-    | #Name.t as name ->
-        translate_name name
-    | #BoxExpr.t as box_expr ->
-        translate_box_expr box_expr
-    | #IfExpr.t as if_expr ->
-        translate_if_expr if_expr
-    | #CaseExpr.t as case_expr ->
-        translate_case_expr case_expr
-    | #CaseExprAlternative.t as case_expr_alternative ->
-        translate_case_expr_alternative case_expr_alternative
-    | #QuantifiedExpr.t as quantified_expr ->
-        translate_quantified_expr quantified_expr
-    | #Allocator.t as allocator ->
-        translate_allocator allocator
-    | #RaiseExpr.t as raise_expr ->
-        translate_raise_expr raise_expr
-  in
-  with_data expr node
+  match%nolazy expr with
+  | #ContractCases.t as contract_cases ->
+      translate_contract_cases contract_cases
+  | `ParenExpr {f_expr} ->
+      translate_expr (f_expr :> Expr.t)
+  | #UnOp.t as unop ->
+      translate_unop unop
+  | #BinOp.t as binop ->
+      translate_binop binop
+  | #MembershipExpr.t as membership_expr ->
+      translate_membership_expr membership_expr
+  | #BaseAggregate.t as base_aggregate ->
+      translate_base_aggregate base_aggregate
+  | #Name.t as name ->
+      translate_name name
+  | #BoxExpr.t as box_expr ->
+      translate_box_expr box_expr
+  | #IfExpr.t as if_expr ->
+      translate_if_expr if_expr
+  | #CaseExpr.t as case_expr ->
+      translate_case_expr case_expr
+  | #CaseExprAlternative.t as case_expr_alternative ->
+      translate_case_expr_alternative case_expr_alternative
+  | #QuantifiedExpr.t as quantified_expr ->
+      translate_quantified_expr quantified_expr
+  | #Allocator.t as allocator ->
+      translate_allocator allocator
+  | #RaiseExpr.t as raise_expr ->
+      translate_raise_expr raise_expr
 
 
 and translate_variable (var : Lal_typ.identifier) =
@@ -132,7 +170,9 @@ and translate_variable (var : Lal_typ.identifier) =
     | None ->
         Utils.lal_error "Cannot find declaration for %a" Utils.pp_node var
   in
-  IR.Expr.(Lval (Var (Source {vname; vdecl}), no_offset var))
+  let typ = translate_type_of_expr global_tenv (var :> Expr.t) in
+  let offset = no_offset var typ in
+  with_data var typ IR.Expr.(Lval (Var (Source {vname; vdecl}), offset))
 
 
 and translate_vardecl (decl : BasicDecl.t) =
@@ -188,7 +228,8 @@ and translate_vardecl (decl : BasicDecl.t) =
   {IR.Expr.decl_scope; decl_kind}
 
 
-and translate_record_access (dotted_name : DottedName.t) : IR.Expr.name_node =
+and translate_record_access (dotted_name : DottedName.t) : IR.Expr.name =
+  let typ = translate_type_of_expr global_tenv (dotted_name :> Expr.t) in
   match DottedName.f_suffix dotted_name with
   | #Identifier.t as ident -> (
       let prefix = (DottedName.f_prefix dotted_name :> Expr.t) in
@@ -202,13 +243,13 @@ and translate_record_access (dotted_name : DottedName.t) : IR.Expr.name_node =
               Utils.pp_node prefix
       in
       let f offset =
-        with_data dotted_name (IR.Expr.Field (offset, fieldinfo ident))
+        with_data dotted_name typ (IR.Expr.Field (offset, fieldinfo ident))
       in
       match append_offset ~f name.node with
       | Some name ->
           name
       | None ->
-          Utils.legality_error "Cannot get the field for %a" Utils.pp_node
+          Utils.legality_error "Cannot access the field for %a" Utils.pp_node
             prefix )
   | suffix ->
       (* For a record access, the only possible suffix is an identifier *)
@@ -219,17 +260,19 @@ and translate_record_access (dotted_name : DottedName.t) : IR.Expr.name_node =
 and translate_contract_cases (_contract_cases : ContractCases.t) = assert false
 
 and translate_unop (unop : UnOp.t) =
-  (* First check if there is a user defined operator *)
+  let typ = translate_type_of_expr global_tenv (unop :> Expr.t) in
   let op = UnOp.f_op unop in
   let expr = translate_expr (UnOp.f_expr unop :> Expr.t) in
+  (* First check if there is a user defined operator *)
   match try Name.p_referenced_decl op with _ -> None with
   | Some _ ->
       let subp_spec = Utils.referenced_subp_spec op in
       let function_call =
         IR.Expr.FunctionCall
-          ((Cfun (funinfo subp_spec), [InParam expr]), no_offset unop)
+          ((Cfun (funinfo subp_spec), [InParam expr]), no_offset unop typ)
       in
-      Name (with_data unop function_call)
+      let name_node = IR.Expr.Name (with_data unop typ function_call) in
+      with_data unop typ name_node
   | None ->
       let operator =
         match op with
@@ -242,10 +285,12 @@ and translate_unop (unop : UnOp.t) =
         | #OpPlus.t ->
             UnaryPlus
       in
-      Unop (operator, expr)
+      let expr_node = IR.Expr.Unop (operator, expr) in
+      with_data unop typ expr_node
 
 
 and translate_binop (binop : BinOp.t) =
+  let typ = translate_type_of_expr global_tenv (binop :> Expr.t) in
   let op = BinOp.f_op binop in
   let lexpr = translate_expr (BinOp.f_left binop :> Expr.t) in
   let rexpr = translate_expr (BinOp.f_right binop :> Expr.t) in
@@ -255,9 +300,10 @@ and translate_binop (binop : BinOp.t) =
       let function_call =
         IR.Expr.FunctionCall
           ( (Cfun (funinfo subp_spec), [InParam lexpr; InParam rexpr])
-          , no_offset binop )
+          , no_offset binop typ )
       in
-      Name (with_data binop function_call)
+      let name_node = IR.Expr.Name (with_data binop typ function_call) in
+      with_data binop typ name_node
   | None ->
       let operator =
         match op with
@@ -303,11 +349,11 @@ and translate_binop (binop : BinOp.t) =
             Utils.legality_error "Unexpected binary operator %a" Utils.pp_node
               op
       in
-      Binop (operator, lexpr, rexpr)
+      let expr_node = IR.Expr.Binop (operator, lexpr, rexpr) in
+      with_data binop typ expr_node
 
 
-and translate_membership_expr (membership_expr : MembershipExpr.t) :
-    IR.Expr.expr_node =
+and translate_membership_expr (membership_expr : MembershipExpr.t) =
   let translate_membership_choice expr =
     match expr with
     | #Lal_typ.range as range when Lal_typ.is_range range ->
@@ -330,23 +376,28 @@ and translate_membership_expr (membership_expr : MembershipExpr.t) :
     |> ExprAlternativesList.f_list
     |> List.map ~f:translate_membership_choice
   in
-  Membership (prefix_expr, kind, choices)
+  let typ = translate_type_of_expr global_tenv (membership_expr :> Expr.t) in
+  let expr_node = IR.Expr.Membership (prefix_expr, kind, choices) in
+  with_data membership_expr typ expr_node
 
 
 and translate_base_aggregate (base_aggregate : BaseAggregate.t) =
+  let typ = translate_type_of_expr global_tenv (base_aggregate :> Expr.t) in
   match%nolazy base_aggregate with
   | #NullRecordAggregate.t ->
-      IR.Expr.NullRecordAggregate
-  | `Aggregate {f_assocs= Some assoc_list} ->
-      let typ = Translate_typ.translate_type_of_expr base_aggregate in
-      if BaseTypeDecl.p_is_record_type typ then
-        translate_record_aggregate assoc_list
-      else if BaseTypeDecl.p_is_array_type typ then
-        translate_array_aggregate assoc_list
-      else
+      with_data base_aggregate typ IR.Expr.NullRecordAggregate
+  | `Aggregate {f_assocs= Some assoc_list} -> (
+    match typ.desc with
+    | Record _ ->
+        let expr_node = translate_record_aggregate assoc_list in
+        with_data base_aggregate typ expr_node
+    | Array _ ->
+        let expr_node = translate_array_aggregate assoc_list in
+        with_data base_aggregate typ expr_node
+    | _ ->
         Utils.legality_error
           "Expecting an array or record type for aggregate %a" Utils.pp_node
-          base_aggregate
+          base_aggregate )
   | _ ->
       Utils.legality_error "Expecting an assoc list for aggregate %a"
         Utils.pp_node base_aggregate
@@ -443,19 +494,23 @@ and translate_named_array_assoc (designators : AdaNode.t list)
       ; aggregate_expr= expr }
 
 
-and translate_name (name : Name.t) : IR.Expr.expr_node =
+and translate_name (name : Name.t) : IR.Expr.t =
   match name with
   | #Lal_typ.identifier as ident when Lal_typ.is_variable ident ->
-      Name (with_data name (translate_variable ident))
+      let var = translate_variable ident in
+      {var with node= Name var}
   | #DottedName.t as dotted_name when Lal_typ.is_record_access dotted_name ->
-      Name (with_data name (translate_record_access dotted_name))
+      let record_access = translate_record_access dotted_name in
+      {record_access with node= Name record_access}
   | #Lal_typ.literal as literal when Lal_typ.is_literal literal ->
       translate_literal literal
   | #Lal_typ.call as call when Lal_typ.is_call call ->
+      let typ = translate_type_of_expr global_tenv call in
       let function_call =
-        IR.Expr.FunctionCall (translate_call call, no_offset name)
+        with_data call typ
+          (IR.Expr.FunctionCall (translate_call call, no_offset call typ))
       in
-      Name (with_data name function_call)
+      {function_call with node= Name function_call}
   | #AttributeRef.t as attribute_ref ->
       translate_attribute_ref attribute_ref
   | #ExplicitDeref.t as explicit_deref -> (
@@ -463,35 +518,48 @@ and translate_name (name : Name.t) : IR.Expr.expr_node =
       let prefix_expr = translate_expr prefix in
       match name_from_expr false prefix_expr with
       | Some name ->
-          let lval = IR.Expr.(Lval (Mem name, no_offset explicit_deref)) in
-          Name (with_data explicit_deref lval)
+          let typ =
+            translate_type_of_expr global_tenv (explicit_deref :> Expr.t)
+          in
+          let lval =
+            with_data explicit_deref typ
+              IR.Expr.(Lval (Mem name, no_offset explicit_deref typ))
+          in
+          {lval with node= Name lval}
       | None ->
           Utils.legality_error "Cannot deref a non lvalue: %a" IR.Expr.pp
             prefix_expr )
   | #CallExpr.t as call_expr ->
       (* Should not be a call *)
-      Name (with_data name (translate_call_expr call_expr))
+      let name = translate_call_expr call_expr in
+      {name with node= Name name}
   | #QualExpr.t as qual_expr ->
-      let qual_expr = translate_qual_expr qual_expr in
-      Name (with_data name (IR.Expr.QualExpr (qual_expr, no_offset name)))
+      let typ = translate_type_of_expr global_tenv qual_expr in
+      let qual_expr_node = translate_qual_expr qual_expr in
+      let name =
+        let offset = no_offset qual_expr typ in
+        with_data qual_expr typ (IR.Expr.QualExpr (qual_expr_node, offset))
+      in
+      {name with node= Name name}
   | _ ->
       Utils.legality_error "Unexpected %a" Utils.pp_node name
 
 
 and translate_literal (literal : Lal_typ.literal) =
   let open IR.Expr in
+  let typ = translate_type_of_expr global_tenv (literal :> Expr.t) in
   match%nolazy literal with
   | #IntLiteral.t as int_literal ->
       try_or_undefined "IntLiteral.p_denoted_value"
         (fun n ->
           Const (Int (IR.Int_lit.of_int (IntLiteral.p_denoted_value n))) )
-        int_literal
+        int_literal typ
   | #StringLiteral.t as string_literal ->
       try_or_undefined "StringLiteral.p_denoted_value"
         (fun n -> Const (String (StringLiteral.p_denoted_value n)))
-        string_literal
+        string_literal typ
   | #NullLiteral.t ->
-      Const Null
+      with_data literal typ (Const Null)
   | #CharLiteral.t as char_lit ->
       (* A char literal is a regular enum. Use p_eval_as_int which correctly
          evaluates the position of the enum *)
@@ -502,10 +570,10 @@ and translate_literal (literal : Lal_typ.literal) =
             (Enum
                { IR.Enum.name= StdCharLiteral name
                ; pos= IR.Int_lit.of_int (Expr.p_eval_as_int n) }) )
-        char_lit
+        char_lit typ
   | #RealLiteral.t as real_literal ->
       (* Not implemented *)
-      unimplemented real_literal
+      unimplemented real_literal typ
   | #Lal_typ.identifier as ident ->
       (* Assume it denotes an enum. Otherwise, translate_literal should not
          have been called *)
@@ -517,7 +585,7 @@ and translate_literal (literal : Lal_typ.literal) =
             (Enum
                { IR.Enum.name= EnumLiteral name
                ; pos= IR.Int_lit.of_int (Expr.p_eval_as_int n) }) )
-        ident
+        ident typ
 
 
 and translate_call (call : Lal_typ.call) =
@@ -692,7 +760,7 @@ and translate_type_or_expr (expr : Expr.t) : IR.Expr.type_or_expr =
   | #Lal_typ.identifier as ident -> (
     match try Name.p_name_designated_type ident with _ -> None with
     | Some typ ->
-        `Type typ
+        `Type (translate_type_decl global_tenv typ)
     | None ->
         (* a simple expression in this case *)
         `Expr (translate_expr expr) )
@@ -733,6 +801,7 @@ and translate_fun_or_lval (implicit_deref : bool) (expr : Expr.t) =
 
 
 and translate_attribute_ref (attribute_ref : AttributeRef.t) =
+  let typ = translate_type_of_expr global_tenv (attribute_ref :> Expr.t) in
   let attribute = Utils.attribute (AttributeRef.f_attribute attribute_ref) in
   let prefix = (AttributeRef.f_prefix attribute_ref :> Expr.t) in
   match attribute with
@@ -750,43 +819,48 @@ and translate_attribute_ref (attribute_ref : AttributeRef.t) =
             Address
       in
       let access =
-        with_data attribute_ref
+        with_data attribute_ref typ
           (IR.Expr.AccessOf (access_kind, translate_fun_or_lval false prefix))
       in
-      IR.Expr.Name access
-  | (`First | `Last | `Length) as attribute -> (
+      {access with node= Name access}
+  | (`First | `Last | `Length) as attribute ->
       let prefix = translate_type_or_name true prefix in
       let index_opt =
         Option.map ~f:translate_arg_as_int (AttributeRef.f_args attribute_ref)
       in
-      match attribute with
-      | `First ->
-          AttributeRef (First (prefix, index_opt))
-      | `Last ->
-          AttributeRef (Last (prefix, index_opt))
-      | `Length ->
-          AttributeRef (Length (prefix, index_opt)) )
+      let expr_node =
+        match attribute with
+        | `First ->
+            IR.Expr.AttributeRef (First (prefix, index_opt))
+        | `Last ->
+            AttributeRef (Last (prefix, index_opt))
+        | `Length ->
+            AttributeRef (Length (prefix, index_opt))
+      in
+      with_data attribute_ref typ expr_node
   | `Result -> (
     match referenced_funinfo prefix with
     | Some info ->
-        AttributeRef (Result info)
+        with_data attribute_ref typ (IR.Expr.AttributeRef (Result info))
     | None ->
         Utils.legality_error "Expecting a function, got a %a" Utils.pp_node
           prefix )
   | _ ->
-      unimplemented attribute_ref
+      unimplemented attribute_ref typ
 
 
-and translate_call_expr (call_expr : CallExpr.t) : IR.Expr.name_node =
+and translate_call_expr (call_expr : CallExpr.t) =
   (* Handle call expr other than subprogram call *)
   let name = CallExpr.f_name call_expr in
   match try Name.p_name_designated_type name with _ -> None with
-  | Some typ -> (
+  | Some lal_typ -> (
       (* This is a cast *)
       match%nolazy CallExpr.f_suffix call_expr with
       | `AssocList {list= [`ParamAssoc {f_r_expr}]} ->
+          let typ = translate_type_decl global_tenv lal_typ in
           let suffix_expr = translate_expr (f_r_expr :> Expr.t) in
-          Cast ((typ, suffix_expr), no_offset call_expr)
+          with_data call_expr typ
+            (IR.Expr.Cast ((typ, suffix_expr), no_offset call_expr typ))
       | suffix ->
           Utils.legality_error
             "Expect an AssocList with one element for a type cast, found %a"
@@ -810,6 +884,7 @@ and translate_call_expr (call_expr : CallExpr.t) : IR.Expr.name_node =
 
 and translate_array_index name call_expr =
   (* Regular array access *)
+  let typ = translate_type_of_expr global_tenv (call_expr :> Expr.t) in
   let suffix = CallExpr.f_suffix call_expr in
   match%nolazy suffix with
   | `AssocList {list= assoc_list} -> (
@@ -824,7 +899,7 @@ and translate_array_index name call_expr =
               Utils.pp_node assoc
       in
       let index = List.map ~f:translate_assoc assoc_list in
-      let f offset = with_data call_expr (IR.Expr.Index (offset, index)) in
+      let f offset = with_data call_expr typ (IR.Expr.Index (offset, index)) in
       match append_offset ~f name.node with
       | Some name ->
           name
@@ -839,13 +914,14 @@ and translate_array_index name call_expr =
 
 and translate_array_slice name call_expr =
   (* Array slicing *)
+  let typ = translate_type_of_expr global_tenv (call_expr :> Expr.t) in
   let suffix = CallExpr.f_suffix call_expr in
   match%nolazy suffix with
   | `AssocList {list= [`ParamAssoc {f_r_expr}]} -> (
     match (f_r_expr :> AdaNode.t) with
     | #Lal_typ.discrete_range as range -> (
         let f offset =
-          with_data call_expr
+          with_data call_expr typ
             (IR.Expr.Slice (offset, translate_discrete_range range))
         in
         match append_offset ~f name.node with
@@ -862,7 +938,7 @@ and translate_array_slice name call_expr =
          a DiscreteSubtypeIndication is directly here instead of under an
          assoc list *)
       let f offset =
-        with_data call_expr
+        with_data call_expr typ
           (IR.Expr.Slice (offset, translate_discrete_range range))
       in
       match append_offset ~f name.node with
@@ -878,23 +954,28 @@ and translate_array_slice name call_expr =
 
 and translate_discrete_range (range : Lal_typ.discrete_range) :
     IR.Expr.discrete_range =
+  let to_discrete_type typ =
+    match typ.IR.Typ.desc with
+    | Discrete discrete_type ->
+        `DiscreteType discrete_type
+    | _ ->
+        Utils.legality_error "Expected a discrete type in range %a"
+          Utils.pp_node range
+  in
   match%nolazy range with
   | #Lal_typ.identifier as ident -> (
     (* The only way to translate a range from an identifier, is if the
        identifier refers to a type *)
     match translate_type_or_expr (ident :> Expr.t) with
     | `Type typ ->
-        `DiscreteType (typ, None)
+        to_discrete_type typ
     | _ ->
         Utils.legality_error "Expect a type for range %a" Utils.pp_node ident )
-  | #DiscreteSubtypeIndication.t as type_expr -> (
-    (* Explicit discrete subtype indication. We translate the underlying type
-       expression and see if it's a range constraint *)
-    match translate_type_expr (type_expr :> TypeExpr.t) with
-    | typ, Some (RangeConstraint (left, right)) ->
-        `DiscreteType (typ, Some (left, right))
-    | typ, None ->
-        `DiscreteType (typ, None) )
+  | #DiscreteSubtypeIndication.t as type_expr ->
+      (* Explicit discrete subtype indication. We translate the underlying type
+         expression and see if it's a range constraint *)
+      to_discrete_type
+        (translate_type_expr global_tenv (type_expr :> TypeExpr.t))
   | #Lal_typ.range as range ->
       `Range (translate_range range)
 
@@ -942,37 +1023,12 @@ and translate_range (range : Lal_typ.range) : IR.Expr.range =
           Utils.pp_node attribute_ref )
 
 
-and translate_type_expr (type_expr : TypeExpr.t) : IR.Expr.type_expr =
-  match TypeExpr.p_designated_type_decl type_expr with
-  | Some typ -> (
-    match type_expr with
-    | #SubtypeIndication.t as subtype_indication -> (
-        let constr = SubtypeIndication.f_constraint subtype_indication in
-        match%nolazy constr with
-        | Some (`RangeConstraint {f_range= `RangeSpec {f_range}}) -> (
-            match%nolazy f_range with
-            | `BinOp {f_left; f_op= `OpDoubleDot _; f_right} ->
-                let left = translate_expr (f_left :> Expr.t) in
-                let right = translate_expr (f_right :> Expr.t) in
-                (typ, Some (RangeConstraint (left, right)))
-            | _ ->
-                Utils.legality_error "Expect a range, found %a" Utils.pp_node
-                  f_range )
-        | _ ->
-            (typ, None) )
-    | _ ->
-        (typ, None) )
-  | None ->
-      Utils.lal_error "Cannot find designated type for %a" Utils.pp_node
-        type_expr
-
-
 and translate_qual_expr (qual_expr : QualExpr.t) : IR.Expr.qual_expr =
   let prefix = QualExpr.f_prefix qual_expr in
   let subtype_mark =
     match try Name.p_name_designated_type prefix with _ -> None with
     | Some typ ->
-        typ
+        translate_type_decl global_tenv typ
     | None ->
         Utils.legality_error
           "Expect a subtype mark for prefix of qualified expression, found %a"
@@ -985,7 +1041,7 @@ and translate_qual_expr (qual_expr : QualExpr.t) : IR.Expr.qual_expr =
 and translate_box_expr (_box_expr : BoxExpr.t) = assert false
 
 and translate_if_expr (if_expr : IfExpr.t) =
-  let typ = Translate_typ.translate_type_of_expr if_expr in
+  let typ = translate_type_of_expr global_tenv (if_expr :> Expr.t) in
   let translate_else_part = function
     | Some expr ->
         translate_expr (expr :> Expr.t)
@@ -1000,9 +1056,8 @@ and translate_if_expr (if_expr : IfExpr.t) =
     let then_expr =
       translate_expr (ElsifExprPart.f_then_expr alternative :> Expr.t)
     in
-    { IR.Expr.node= IR.Expr.If (cond_expr, then_expr, else_expr)
-    ; orig_node= (if_expr :> Expr.t)
-    ; typ }
+    let if_node = IR.Expr.If (cond_expr, then_expr, else_expr) in
+    with_data if_expr typ if_node
   in
   let cond_expr = translate_expr (IfExpr.f_cond_expr if_expr :> Expr.t) in
   let then_expr = translate_expr (IfExpr.f_then_expr if_expr :> Expr.t) in
@@ -1013,7 +1068,8 @@ and translate_if_expr (if_expr : IfExpr.t) =
   let elsif_expr =
     List.fold_right ~f:translate_alternative ~init:else_expr alternatives
   in
-  IR.Expr.If (cond_expr, then_expr, elsif_expr)
+  let if_node = IR.Expr.If (cond_expr, then_expr, elsif_expr) in
+  with_data if_expr typ if_node
 
 
 and translate_discrete_choice (node : AdaNode.t) =
@@ -1051,7 +1107,9 @@ and translate_case_expr (case_expr : CaseExpr.t) =
     List.fold ~f:translate_alternative ~init:([], None)
       (CaseExprAlternativeList.f_list (CaseExpr.f_cases case_expr))
   in
-  IR.Expr.Case (expr, List.rev alternatives, others)
+  let typ = translate_type_of_expr global_tenv (case_expr :> Expr.t) in
+  let case_node = IR.Expr.Case (expr, List.rev alternatives, others) in
+  with_data case_expr typ case_node
 
 
 and translate_case_expr_alternative
@@ -1074,7 +1132,11 @@ and translate_quantified_expr (quantified_expr : QuantifiedExpr.t) =
   let predicate =
     translate_expr (QuantifiedExpr.f_expr quantified_expr :> Expr.t)
   in
-  IR.Expr.Quantified (quantifier, iterator_spec, predicate)
+  let typ = translate_type_of_expr global_tenv (quantified_expr :> Expr.t) in
+  let quantified_node =
+    IR.Expr.Quantified (quantifier, iterator_spec, predicate)
+  in
+  with_data quantified_expr typ quantified_node
 
 
 and translate_iterator_specification (loop_spec : ForLoopSpec.t) =
@@ -1120,13 +1182,19 @@ and translate_iterator_specification (loop_spec : ForLoopSpec.t) =
 
 
 and translate_allocator (allocator : Allocator.t) =
-  match Allocator.f_type_or_expr allocator with
-  | #SubtypeIndication.t as subtype_indication ->
-      let type_expr = translate_type_expr (subtype_indication :> TypeExpr.t) in
-      IR.Expr.Allocator (type_expr, None)
-  | #QualExpr.t as qual_expr ->
-      let typ, expr = translate_qual_expr qual_expr in
-      Allocator ((typ, None), Some expr)
+  let typ = translate_type_of_expr global_tenv (allocator :> Expr.t) in
+  let allocator_node =
+    match Allocator.f_type_or_expr allocator with
+    | #SubtypeIndication.t as subtype_indication ->
+        let type_expr =
+          translate_type_expr global_tenv (subtype_indication :> TypeExpr.t)
+        in
+        IR.Expr.Allocator (type_expr, None)
+    | #QualExpr.t as qual_expr ->
+        let qual_typ, expr = translate_qual_expr qual_expr in
+        IR.Expr.Allocator (qual_typ, Some expr)
+  in
+  with_data allocator typ allocator_node
 
 
 and translate_raise_expr (raise_expr : RaiseExpr.t) =
@@ -1147,7 +1215,306 @@ and translate_raise_expr (raise_expr : RaiseExpr.t) =
       ~f:(fun e -> translate_expr (e :> Expr.t))
       (RaiseExpr.f_error_message raise_expr)
   in
-  IR.Expr.Raise (name, msg)
+  let typ = translate_type_of_expr global_tenv (raise_expr :> Expr.t) in
+  let raise_node = IR.Expr.Raise (name, msg) in
+  with_data raise_expr typ raise_node
+
+
+(* Start of type translation *)
+and translate_bound e =
+  let expr = translate_expr e in
+  match expr.node with Const c -> IR.Typ.Static c | _ -> Dynamic expr
+
+
+and translate_custom_type tenv base_type_decl =
+  (* handle translation of some custom types specially. Return an optional
+     type. [Some typ] means that [typ] is the custom translation of the type.
+     If [None], the given type is not a type with a special representation. *)
+  let name =
+    try BasicDecl.p_unique_identifying_name base_type_decl with _ -> ""
+  in
+  let orig_node = base_type_decl in
+  match name with
+  | "standard.universal_int_type_" ->
+      (* Special case for this type, return int64 type annotated with
+         UniversalInteger name *)
+      Some
+        { IR.Typ.desc= int64_desc
+        ; aspects= []
+        ; name= UniversalInteger
+        ; parent_type= None
+        ; orig_node }
+  | "standard.character" ->
+      Some
+        { desc= char_desc
+        ; aspects= []
+        ; name= StdCharacter
+        ; parent_type= None
+        ; orig_node }
+  | "standard.wide_character" ->
+      Some
+        { desc= wide_char_desc
+        ; aspects= []
+        ; name= StdWideCharacter
+        ; parent_type= None
+        ; orig_node }
+  | "standard.wide_wide_character" ->
+      Some
+        { desc= wide_wide_char_desc
+        ; aspects= []
+        ; name= StdWideWideCharacter
+        ; parent_type= None
+        ; orig_node }
+  | "system.address" ->
+      (* Annotate the type with Address name *)
+      Some {(translate_type_decl_impl tenv base_type_decl) with name= Address}
+  | _ ->
+      None
+
+
+and translate_type_decl_impl tenv base_type_decl =
+  let typ =
+    match%nolazy (base_type_decl :> BaseTypeDecl.t) with
+    | #TypeDecl.t as type_decl ->
+        (* This is a type declaration, the type depends on the type definition *)
+        translate_type_def tenv type_decl (TypeDecl.f_type_def type_decl)
+    | `SubtypeDecl {f_subtype} ->
+        (* For a subtype, we can simply fallback on calling the translation for
+           a type expr *)
+        translate_subtype_indication tenv f_subtype
+    | #IncompleteTypeDecl.t as incomplete -> (
+      match BaseTypeDecl.p_next_part base_type_decl with
+      | Some type_decl ->
+          translate_type_decl tenv type_decl
+      | None ->
+          (* Did not found next part, try to find the complete type calling
+             complete_type_decl *)
+          Utils.lal_error "Cannot find complete type decl for %a."
+            Utils.pp_node incomplete )
+    | #DiscreteBaseSubtypeDecl.t ->
+        (* TODO: we do not yet compute base types, return 64 bit int here
+           instead *)
+        mk base_type_decl int64_desc
+    | #ClasswideTypeDeclType.t -> (
+      match AdaNode.parent base_type_decl with
+      | Some (#BaseTypeDecl.t as base_type) ->
+          translate_type_decl tenv base_type
+      | Some n ->
+          Utils.lal_error "For %a, found parent %a, expecting a BaseTypeDecl"
+            Utils.pp_node base_type_decl Utils.pp_node n
+      | None ->
+          Utils.lal_error "Cannot find parent for %a" Utils.pp_node
+            base_type_decl )
+    | #TaskTypeDeclType.t | #ProtectedTypeDeclType.t ->
+        mk base_type_decl int64_desc
+  in
+  let aspects = get_aspects base_type_decl in
+  {(mk base_type_decl typ.desc) with aspects= merge_aspects typ.aspects aspects}
+
+
+and translate_constraint _tenv _orig_type _constr = assert false
+
+and translate_subtype_indication tenv subtype_indication =
+  let orig_type = get_orig_type tenv (subtype_indication :> TypeExpr.t) in
+  let new_type =
+    match SubtypeIndication.f_constraint subtype_indication with
+    | Some constr ->
+        (* Add the constraints to the type *)
+        translate_constraint tenv orig_type constr
+    | None ->
+        orig_type
+  in
+  {new_type with parent_type= Some orig_type}
+
+
+and get_orig_type tenv type_expr =
+  let open Option.Monad_infix in
+  match
+    TypeExpr.p_designated_type_decl type_expr >>| translate_type_decl tenv
+  with
+  | Some orig_type ->
+      orig_type
+  | None ->
+      Utils.lal_error "Cannot get the orig type for type expr %a" Utils.pp_node
+        type_expr
+
+
+and translate_type_def tenv type_decl type_def =
+  match%nolazy (type_def :> TypeDef.t) with
+  | #EnumTypeDef.t as enum_type_def ->
+      translate_enum_type_def type_decl enum_type_def
+  | #SignedIntTypeDef.t as signed_int_type_def ->
+      translate_signed_int_type_def type_decl signed_int_type_def
+  | `ModIntTypeDef {f_expr} ->
+      (* example:
+       *     type IntMod is mod 256 *)
+      mk (Discrete (Mod (trans_expr f_expr)))
+  | `RecordTypeDef {f_record_def} -> (
+      (* record definition *)
+      let name = get_type_name type_decl in
+      match lookup tenv name with
+      | Some _ ->
+          mk (Record (name, Unconstrained))
+      | None ->
+          (* First insert a dummy record description, to avoid infinite
+           * recursion with recursive structures *)
+          TypenameHash.add tenv name {discriminants= []; fields= []} ;
+          let discriminants = trans_discriminants tenv type_decl in
+          let fields = trans_fields tenv f_record_def in
+          TypenameHash.add tenv name {discriminants; fields} ;
+          mk (Record (name, Unconstrained)) )
+  | #RealTypeDef.t ->
+      (* TODO: simple float for now without taking ranges in account *)
+      mk Float
+  | `AnonymousTypeAccessDef {f_type_decl} ->
+      (* anonymous access *)
+      mk (Access (!trans_type_decl tenv f_type_decl))
+  | `TypeAccessDef {f_subtype_indication} ->
+      (* access definition *)
+      mk (Access (!trans_type_expr tenv (f_subtype_indication :> TypeExpr.t)))
+  | `DerivedTypeDef
+      { f_subtype_indication
+      ; f_record_extension
+      ; f_has_with_private= `WithPrivateAbsent _ } -> (
+      (* type Derived is new SomeType
+       * return the type of the original type *)
+      let derived_from_type =
+        trans_subtype_indication tenv f_subtype_indication
+      in
+      match derived_from_type.desc with
+      | Record (derived_rec_name, constr) -> (
+          let name = get_type_name type_decl in
+          (* If the type we derive from is a record, check for any record
+          * extension. trans_subtype_indication does not handle record
+          * extension and possible added discriminants *)
+          match lookup tenv name with
+          | Some _ ->
+              {derived_from_type with desc= Record (name, constr)}
+          | None ->
+              (* First insert a dummy record description, to avoid infinite
+               * recursion with recursive structures *)
+              TypenameHash.add tenv name {discriminants= []; fields= []} ;
+              let discriminants = trans_discriminants tenv type_decl in
+              ( match lookup tenv derived_rec_name with
+              | Some record ->
+                  let new_record =
+                    match f_record_extension with
+                    | Some record_def ->
+                        let fields = trans_fields tenv record_def in
+                        { discriminants= discriminants @ record.discriminants
+                        ; fields= fields @ record.fields }
+                    | None ->
+                        { record with
+                          discriminants= discriminants @ record.discriminants
+                        }
+                  in
+                  TypenameHash.add tenv name new_record
+              | None ->
+                  unimplemented "Cannot find record fields for %s"
+                    (AdaNode.short_image f_subtype_indication) ) ;
+              {derived_from_type with desc= Record (name, constr)} )
+      | _ ->
+          derived_from_type )
+  | #ArrayTypeDef.t as array_type_def ->
+      (* type Arr is array (1 .. 10) of Integer *)
+      mk (trans_array_type_def tenv (get_type_name type_decl) array_type_def)
+  | #PrivateTypeDef.t
+  | `DerivedTypeDef {f_has_with_private= `WithPrivatePresent _} -> (
+    match BaseTypeDecl.p_next_part type_decl with
+    | Some type_decl ->
+        !trans_type_decl tenv type_decl
+    | None ->
+        lal_error "Cannot find next part for %s"
+          (AdaNode.short_image type_decl) )
+  | `AccessToSubpDef {f_subp_spec= `SubpSpec {f_subp_returns}} ->
+      let subp_returns = (f_subp_returns :> TypeExpr.t option) in
+      let return_typ =
+        Option.value_map ~default:void ~f:(!trans_type_expr tenv) subp_returns
+      in
+      let subprogram = mk (Subprogram return_typ) in
+      mk (Access subprogram)
+  | #InterfaceTypeDef.t ->
+      (* Simply translate an interface type into an empty record *)
+      let name = get_type_name type_decl in
+      ( match lookup tenv name with
+      | None ->
+          TypenameHash.add tenv name {discriminants= []; fields= []}
+      | Some _ ->
+          () ) ;
+      mk (Record (name, Unconstrained))
+  | #FormalDiscreteTypeDef.t as type_def ->
+      unimplemented "trans_type_decl for %s" (AdaNode.short_image type_def)
+
+
+and translate_enum_type_def type_decl enum_type_def =
+  (* example of an enum type definition is:
+       *     type Color is (Red, Green, Blue)
+       *
+       * first value for enum types is 0 and last is (length - 1)
+       *
+       * Red is 0
+       * Green is 1
+       * Blue is 2 *)
+  let enum_decl_list =
+    EnumTypeDef.f_enum_literals enum_type_def |> EnumLiteralDeclList.f_list
+  in
+  let to_enum_name enum_literal_decl =
+    IR.Enum.EnumLiteral (EnumLiteralDecl.f_name enum_literal_decl)
+  in
+  let name_list = List.map ~f:to_enum_name enum_decl_list in
+  mk type_decl (Discrete (Enum (OtherEnum name_list), None))
+
+
+and translate_signed_int_type_def type_decl signed_int_type_def =
+  (* Implement signed_integer_type_definition (Ada RM 3.5.4) *)
+  let range_spec = SignedIntTypeDef.f_range signed_int_type_def in
+  match%nolazy RangeSpec.f_range range_spec with
+  | `BinOp {f_left; f_op= `OpDoubleDot _; f_right} ->
+      let left = translate_expr (f_left :> Expr.t) in
+      let right = translate_expr (f_right :> Expr.t) in
+      mk type_decl (Discrete (Signed, Some (DoubleDot (left, right))))
+  | _ as op ->
+      Utils.legality_error "Expecting range x .. y, found %a" Utils.pp_node op
+
+
+and translate_type_decl tenv base_type_decl =
+  (* Mnemoize this function in tenv *)
+  match IR.Typ.find_base_type_decl tenv base_type_decl with
+  | Some typ ->
+      typ
+  | None ->
+      let result =
+        match translate_custom_type tenv base_type_decl with
+        | Some typ ->
+            typ
+        | None ->
+            translate_type_decl_impl tenv base_type_decl
+      in
+      IR.Typ.add_base_type_decl tenv base_type_decl result ;
+      result
+
+
+and translate_type_expr tenv (type_expr : TypeExpr.t) : IR.Typ.t =
+  match type_expr with
+  | #SubtypeIndication.t as subtype_indication ->
+      translate_subtype_indication tenv subtype_indication
+  | _ -> (
+    match TypeExpr.p_designated_type_decl type_expr with
+    | Some type_decl ->
+        translate_type_decl tenv type_decl
+    | None ->
+        Utils.lal_error "Cannot find designated type for %a" Utils.pp_node
+          type_expr )
+
+
+and translate_type_of_expr (tenv : IR.Typ.tenv) (expr : [< Expr.t]) : IR.Typ.t
+    =
+  match Expr.p_expression_type expr with
+  | Some base_type_decl ->
+      translate_type_decl tenv base_type_decl
+  | None ->
+      Utils.lal_error "cannot find type for expression %s"
+        (AdaNode.short_image expr)
 
 
 let translate_expr (expr : [< Expr.t]) = translate_expr (expr :> Expr.t)

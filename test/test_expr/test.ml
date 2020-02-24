@@ -9,7 +9,7 @@ let root = match AnalysisUnit.root u with Some n -> n | None -> assert false
 let pp_assign fmt assign =
   let expr = AssignStmt.f_expr assign in
   try
-    let lal_expr = Translation.Translate_expr.translate_expr expr in
+    let lal_expr = Translation.translate_expr expr in
     Format.fprintf fmt "%s = %a" (AdaNode.short_image expr) IR.Expr.pp lal_expr
   with exn ->
     Format.fprintf fmt "@[<v 2>Error translating %s:@ %s@]"
