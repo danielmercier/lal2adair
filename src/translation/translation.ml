@@ -81,7 +81,7 @@ let mk orig_node desc =
 let int64_desc =
   let min_int = IR.Int_lit.of_string "-0x8000000000000000" in
   let max_int = IR.Int_lit.of_string "0x7FFFFFFFFFFFFFFF" in
-  IR.Typ.Discrete (Signed (Static (Int min_int), Static (Int max_int)))
+  IR.Typ.Discrete (Signed (min_int, max_int), None)
 
 
 let get_aspects basic_decl =
@@ -96,14 +96,25 @@ let merge_aspects l_aspects r_aspects =
   List.dedup_and_sort ~compare:Pervasives.compare (l_aspects @ r_aspects)
 
 
-let char_desc = IR.Typ.Discrete (Enum (Character (IR.Int_lit.of_int 256)))
+let char_desc = IR.Typ.Discrete (Enum (Character (IR.Int_lit.of_int 256)), None)
 
 let wide_char_desc =
-  IR.Typ.Discrete (Enum (Character (IR.Int_lit.of_int 65536)))
+  IR.Typ.Discrete (Enum (Character (IR.Int_lit.of_int 65536)), None)
 
 
 let wide_wide_char_desc =
-  IR.Typ.Discrete (Enum (Character (IR.Int_lit.of_int 2147483648)))
+  IR.Typ.Discrete (Enum (Character (IR.Int_lit.of_int 2147483648)), None)
+
+
+let to_int (expr : IR.Expr.t) =
+  (* Return a int literal from an expression, raise a legality error if the
+     expression is not static *)
+  match expr.node with
+  | Const (Int i) ->
+      i
+  | _ ->
+      Utils.legality_error "Expected a static expression, got %a" Utils.pp_node
+        expr.orig_node
 
 
 let with_data (orig_node : [< Expr.t]) (typ : IR.Typ.t) (node : 'a) =
@@ -1345,76 +1356,24 @@ and translate_type_def tenv type_decl type_def =
       translate_enum_type_def type_decl enum_type_def
   | #SignedIntTypeDef.t as signed_int_type_def ->
       translate_signed_int_type_def type_decl signed_int_type_def
-  | `ModIntTypeDef {f_expr} ->
-      (* example:
-       *     type IntMod is mod 256 *)
-      mk (Discrete (Mod (trans_expr f_expr)))
-  | `RecordTypeDef {f_record_def} -> (
-      (* record definition *)
-      let name = get_type_name type_decl in
-      match lookup tenv name with
-      | Some _ ->
-          mk (Record (name, Unconstrained))
-      | None ->
-          (* First insert a dummy record description, to avoid infinite
-           * recursion with recursive structures *)
-          TypenameHash.add tenv name {discriminants= []; fields= []} ;
-          let discriminants = trans_discriminants tenv type_decl in
-          let fields = trans_fields tenv f_record_def in
-          TypenameHash.add tenv name {discriminants; fields} ;
-          mk (Record (name, Unconstrained)) )
-  | #RealTypeDef.t ->
-      (* TODO: simple float for now without taking ranges in account *)
-      mk Float
+  | #ModIntTypeDef.t as mod_type_def ->
+      translate_mod_type_def type_decl mod_type_def
+  | #RecordTypeDef.t as record_type_def ->
+      translate_record_type_def tenv type_decl record_type_def
+  | #RealTypeDef.t as real_type_def ->
+      translate_real_type_def type_decl real_type_def
   | `AnonymousTypeAccessDef {f_type_decl} ->
       (* anonymous access *)
-      mk (Access (!trans_type_decl tenv f_type_decl))
+      let root_typ = translate_type_decl tenv f_type_decl in
+      mk type_decl (Access (AccessKind, Object root_typ))
   | `TypeAccessDef {f_subtype_indication} ->
       (* access definition *)
-      mk (Access (!trans_type_expr tenv (f_subtype_indication :> TypeExpr.t)))
-  | `DerivedTypeDef
-      { f_subtype_indication
-      ; f_record_extension
-      ; f_has_with_private= `WithPrivateAbsent _ } -> (
-      (* type Derived is new SomeType
-       * return the type of the original type *)
-      let derived_from_type =
-        trans_subtype_indication tenv f_subtype_indication
+      let root_typ =
+        translate_type_expr tenv (f_subtype_indication :> TypeExpr.t)
       in
-      match derived_from_type.desc with
-      | Record (derived_rec_name, constr) -> (
-          let name = get_type_name type_decl in
-          (* If the type we derive from is a record, check for any record
-          * extension. trans_subtype_indication does not handle record
-          * extension and possible added discriminants *)
-          match lookup tenv name with
-          | Some _ ->
-              {derived_from_type with desc= Record (name, constr)}
-          | None ->
-              (* First insert a dummy record description, to avoid infinite
-               * recursion with recursive structures *)
-              TypenameHash.add tenv name {discriminants= []; fields= []} ;
-              let discriminants = trans_discriminants tenv type_decl in
-              ( match lookup tenv derived_rec_name with
-              | Some record ->
-                  let new_record =
-                    match f_record_extension with
-                    | Some record_def ->
-                        let fields = trans_fields tenv record_def in
-                        { discriminants= discriminants @ record.discriminants
-                        ; fields= fields @ record.fields }
-                    | None ->
-                        { record with
-                          discriminants= discriminants @ record.discriminants
-                        }
-                  in
-                  TypenameHash.add tenv name new_record
-              | None ->
-                  unimplemented "Cannot find record fields for %s"
-                    (AdaNode.short_image f_subtype_indication) ) ;
-              {derived_from_type with desc= Record (name, constr)} )
-      | _ ->
-          derived_from_type )
+      mk type_decl (Access (AccessKind, Object root_typ))
+  | #DerivedTypeDef.t as derived_type_def ->
+      translate_derived_type_def tenv type_decl derived_type_def
   | #ArrayTypeDef.t as array_type_def ->
       (* type Arr is array (1 .. 10) of Integer *)
       mk (trans_array_type_def tenv (get_type_name type_decl) array_type_def)
@@ -1448,13 +1407,13 @@ and translate_type_def tenv type_decl type_def =
 
 and translate_enum_type_def type_decl enum_type_def =
   (* example of an enum type definition is:
-       *     type Color is (Red, Green, Blue)
-       *
-       * first value for enum types is 0 and last is (length - 1)
-       *
-       * Red is 0
-       * Green is 1
-       * Blue is 2 *)
+         type Color is (Red, Green, Blue)
+
+     first value for enum types is 0 and last is (length - 1)
+
+     Red is 0
+     Green is 1
+     Blue is 2 *)
   let enum_decl_list =
     EnumTypeDef.f_enum_literals enum_type_def |> EnumLiteralDeclList.f_list
   in
@@ -1470,11 +1429,287 @@ and translate_signed_int_type_def type_decl signed_int_type_def =
   let range_spec = SignedIntTypeDef.f_range signed_int_type_def in
   match%nolazy RangeSpec.f_range range_spec with
   | `BinOp {f_left; f_op= `OpDoubleDot _; f_right} ->
-      let left = translate_expr (f_left :> Expr.t) in
-      let right = translate_expr (f_right :> Expr.t) in
-      mk type_decl (Discrete (Signed, Some (DoubleDot (left, right))))
+      let left = to_int (translate_expr (f_left :> Expr.t)) in
+      let right = to_int (translate_expr (f_right :> Expr.t)) in
+      mk type_decl (Discrete (Signed (left, right), None))
   | _ as op ->
       Utils.legality_error "Expecting range x .. y, found %a" Utils.pp_node op
+
+
+and translate_mod_type_def type_decl mod_type_def =
+  (* Implement modular_type_definition (Ada RM 3.5.4) *)
+  let modulus_expr = (ModIntTypeDef.f_expr mod_type_def :> Expr.t) in
+  let modulus = to_int (translate_expr modulus_expr) in
+  mk type_decl (Discrete (Modular modulus, None))
+
+
+and translate_discriminants tenv type_decl =
+  let translate_discriminant discriminant =
+    (* A discriminant spec possibly contains multiple ids, but they all
+       share the same type, so map them to the name and the type of
+       the discriminant *)
+    let discr_typ =
+      let type_expr =
+        (DiscriminantSpec.f_type_expr discriminant :> TypeExpr.t)
+      in
+      let typ = translate_type_expr tenv type_expr in
+      match typ.desc with
+      | Discrete discrete ->
+          `Discrete discrete
+      | Access (AccessKind, root_typ) ->
+          `Access root_typ
+      | _ ->
+          Utils.legality_error
+            "Type of discriminant should be a discrete type or anonymous \
+             access type, found %a"
+            Utils.pp_node type_expr
+    in
+    DiscriminantSpec.f_ids discriminant
+    |> DefiningNameList.f_list
+    |> List.map ~f:(fun discr_name -> {IR.Typ.discr_name; discr_typ})
+  in
+  let discriminants =
+    match%nolazy TypeDecl.f_discriminants type_decl with
+    | Some
+        (`KnownDiscriminantPart
+          {f_discr_specs= `DiscriminantSpecList {list= discriminants}}) ->
+        discriminants
+    | _ ->
+        []
+  in
+  List.concat_map ~f:translate_discriminant discriminants
+
+
+and translate_discriminant_constraints type_decl =
+  let discriminants =
+    match%nolazy TypeDecl.f_discriminants type_decl with
+    | Some
+        (`KnownDiscriminantPart
+          {f_discr_specs= `DiscriminantSpecList {list= discriminants}}) ->
+        discriminants
+    | _ ->
+        []
+  in
+  match discriminants with
+  | [] ->
+      (* No discriminants, thus this is a constrained record *)
+      IR.Typ.RecConstrained []
+  | h :: _ -> (
+      (* The head determines weather this is a constrained record or not *)
+      let constrained discriminant =
+        match DiscriminantSpec.f_default_expr discriminant with
+        | Some default_expr ->
+            let expr = translate_expr (default_expr :> Expr.t) in
+            DiscriminantSpec.f_ids discriminant
+            |> DefiningNameList.f_list
+            |> List.map ~f:(fun discr_name -> (discr_name, expr))
+        | None ->
+            Utils.legality_error
+              "No expression for discriminant %a in constrained record"
+              Utils.pp_node discriminant
+      in
+      match DiscriminantSpec.f_default_expr h with
+      | Some _ ->
+          RecConstrained (List.concat_map ~f:constrained discriminants)
+      | None ->
+          (* Unconstrained record *)
+          RecUnconstrained )
+
+
+(** Translate a record definition into a list of fields. *)
+and translate_fields tenv base_record_def =
+  let translate_component field_constraint component =
+    (* This function translates one component to a list of fields with the
+       given field constraint *)
+    match%nolazy (component :> AdaNode.t) with
+    | `ComponentDecl
+        { f_ids= `DefiningNameList {list= ids}
+        ; f_component_def= `ComponentDef {f_type_expr} } ->
+        let field_typ = translate_type_expr tenv (f_type_expr :> TypeExpr.t) in
+        List.map
+          ~f:(fun name ->
+            {IR.Typ.field_name= name; field_typ; field_constraint} )
+          ids
+    | _ ->
+        (* We can have pragmas or null here, but we ignore them in this
+           function *)
+        []
+  in
+  let rec translate_variant_part (field_constraint : IR.Typ.field_constraint) =
+    (* This function translates one variant part with the give field
+       constraint. The field constraint is the constraint from the top of the
+       type to the point where appears the variant part. Variant part can be
+       nested, this is why we need to keep the field constraint *)
+    function%nolazy
+    | `VariantPart
+        {VariantPartType.f_discr_name; f_variant= `VariantList {list= variants}}
+      ->
+        (* A variant part is of the form:
+           case f_discr_name is
+             when choices =>
+               component_list
+
+           A variant part is a case .. is .. end case;' block in a
+           discriminated record declaration. It contains a list of
+           variants that each corresponds to a "when choices => components"
+           section of the case.
+
+           for each variant, construct the new condition based on the given one
+           and the alternative_list, and call trans_component with this
+           newly created condition on the component_list *)
+        let discriminant =
+          match Name.p_referenced_defining_name f_discr_name with
+          | Some discr ->
+              discr
+          | None ->
+              Utils.lal_error "Cannot get the discriminant %a" Utils.pp_node
+                f_discr_name
+        in
+        let translate_variant (not_alternatives, fields) variant =
+          (* This function is used to fold each variant in the variant part
+             the accumulator contains both the alternatives that we need to
+             negate to come to this variant and the fields contains the
+             current fields that we already translated *)
+          let translate_choice choice =
+            (* create a condition for this choice *)
+            match choice with
+            | #OthersDesignator.t ->
+                (* Simply ignore the others constraint *)
+                None
+            | _ ->
+                let discrete_choice = translate_discrete_choice choice in
+                Some discrete_choice
+          in
+          let choices =
+            List.filter_map ~f:translate_choice
+              (Variant.f_choices variant |> AlternativesList.f_list)
+          in
+          let alternatives = {IR.Typ.discriminant; choices} in
+          (* For the next variants, this variant should be negated, this is
+             why we add it to not_alternatives. For the fields, we recursively
+             call translate_component_list with the new alternative added to
+             the field constraint *)
+          ( alternatives :: not_alternatives
+          , fields
+            @ translate_component_list
+                { IR.Typ.not_alternatives
+                ; alternatives= alternatives :: field_constraint.alternatives
+                }
+                (Variant.f_components variant) )
+        in
+        (* We do not need the last negated alternatives since there is no more
+           fields to translate *)
+        let _, result =
+          List.fold_left ~f:translate_variant
+            ~init:(field_constraint.not_alternatives, [])
+            variants
+        in
+        result
+  and translate_component_list field_constraint component_list =
+    (* Translate a list of component to a list of field by constructing the
+       field constraint *)
+    let open Option.Monad_infix in
+    let component_fields =
+      let components =
+        (* components, simply default it to [] if there is no components since
+           a variant part with no components is possible *)
+        ComponentList.f_components component_list
+        >>| AdaNodeList.f_list |> Option.value ~default:[]
+      in
+      List.concat_map ~f:(translate_component field_constraint) components
+    in
+    let variant_part_fields =
+      let variant_part =
+        (* variant part, simply default it to [] if there is no variant part
+           since components with no variants is possible *)
+        ComponentList.f_variant_part component_list
+      in
+      Option.value ~default:[]
+        (variant_part >>| translate_variant_part field_constraint)
+    in
+    (* Append both fields from components and fields from variant part *)
+    component_fields @ variant_part_fields
+  in
+  let component_list = BaseRecordDef.f_components base_record_def in
+  translate_component_list
+    {not_alternatives= []; alternatives= []}
+    component_list
+
+
+and translate_record_type_def tenv type_decl record_type_def =
+  (* record definition *)
+  let name = Utils.decl_defining_name type_decl in
+  ( match IR.Typ.record_opt tenv name with
+  | Some _ ->
+      (* The record is already registered *)
+      ()
+  | None ->
+      (* First insert a dummy record description, to avoid infinite
+         recursion with recursive structures *)
+      IR.Typ.add_record tenv name {discriminants= []; fields= []} ;
+      let discriminants = translate_discriminants tenv type_decl in
+      let base_record_def = RecordTypeDef.f_record_def record_type_def in
+      let fields = translate_fields tenv base_record_def in
+      IR.Typ.add_record tenv name {discriminants; fields} ) ;
+  let record_constraint = translate_discriminant_constraints type_decl in
+  mk type_decl (Record (name, record_constraint))
+
+
+and translate_real_type_def type_decl _real_type_def =
+  (* TODO: simple float for now without taking ranges in account *)
+  mk type_decl (Real Float)
+
+
+and translate_derived_type_def tenv type_decl derived_type_def =
+  (* type Derived is new SomeType *)
+  let subtype_indication =
+    DerivedTypeDef.f_subtype_indication derived_type_def
+  in
+  let derived_from_type =
+    translate_subtype_indication tenv subtype_indication
+  in
+  match derived_from_type.desc with
+  | Record (derived_rec_name, _) ->
+      (* TODO the derived discriminant constraint is not taken into account.
+         if there is one, it should bind the discriminants of this type, to
+         the discriminants of the derived type *)
+      let record_extension =
+        DerivedTypeDef.f_record_extension derived_type_def
+      in
+      let name = Utils.decl_defining_name type_decl in
+      (* If the type we derive from is a record, check for any record
+         extension. *)
+      ( match IR.Typ.record_opt tenv name with
+      | Some _ ->
+          ()
+      | None ->
+          (* First insert a dummy record description, to avoid infinite
+             recursion with recursive structures *)
+          IR.Typ.add_record tenv name {discriminants= []; fields= []} ;
+          let derived_record = IR.Typ.record tenv derived_rec_name in
+          let discriminants =
+            match translate_discriminants tenv type_decl with
+            | [] ->
+                (* No discriminants, they are inherited from the parent, see
+                   Ada RM 3.4 (11) *)
+                derived_record.discriminants
+            | discriminants ->
+                (* Discriminants are defined by this type. *)
+                discriminants
+          in
+          let new_record =
+            match record_extension with
+            | Some record_def ->
+                let fields = translate_fields tenv record_def in
+                {IR.Typ.discriminants; fields= fields @ derived_record.fields}
+            | None ->
+                {discriminants; fields= derived_record.fields}
+          in
+          IR.Typ.add_record tenv name new_record ) ;
+      let record_constraint = translate_discriminant_constraints type_decl in
+      mk type_decl (Record (name, record_constraint))
+  | _ ->
+      derived_from_type
 
 
 and translate_type_decl tenv base_type_decl =

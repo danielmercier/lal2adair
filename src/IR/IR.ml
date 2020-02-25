@@ -38,18 +38,21 @@ module rec Typ : sig
   and tenv =
     { base_type_decl_tbl: t BaseTypeDeclTbl.t
     ; array_elt_typ_tbl: t NameTbl.t
-    ; record_field_tbl: field list NameTbl.t }
+    ; record_tbl: record NameTbl.t }
 
   and desc =
     | Discrete of discrete_type
     | Real of real_typ
     | Access of access_kind * access_typ
     | Array of Name.t * discrete_type list * constrained
-    | Record of Name.t * discriminant_list
+    | Record of Name.t * record_constraint
 
   and discrete_type = discrete_type_desc * Expr.range option
 
-  and discrete_type_desc = Enum of enum_typ | Signed | Modular of Int_lit.t
+  and discrete_type_desc =
+    | Enum of enum_typ
+    | Signed of Int_lit.t * Int_lit.t
+    | Modular of Int_lit.t
 
   and enum_typ =
     | Character of Int_lit.t (* Length of the character type *)
@@ -76,22 +79,25 @@ module rec Typ : sig
 
   and real_typ = Float | Fixed
 
-  and discriminant_list =
-    | ConstrainedDiscr of (Name.t * bound) list
-    | UnconstrainedDiscr of Name.t list
+  and record = {discriminants: discriminant list; fields: field list}
+
+  and record_constraint =
+    | RecConstrained of (Name.t * Expr.t) list
+    | RecUnconstrained
+
+  and discriminant = {discr_name: Name.t; discr_typ: discr_typ}
+
+  and discr_typ = [`Access of access_typ | `Discrete of discrete_type]
 
   and field =
-    {field_name: Name.t; field_typ: t; field_constraint: field_constraint list}
+    {field_name: Name.t; field_typ: t; field_constraint: field_constraint}
 
-  and field_constraint = {discriminant: Name.t; constr: constr}
+  and field_constraint =
+    {not_alternatives: alternatives list; alternatives: alternatives list}
+
+  and alternatives = {discriminant: Name.t; choices: Expr.discrete_choice list}
 
   and static_expr = Int_lit.t
-
-  and constr =
-    | Range of Expr.const * Expr.const
-    | Equal of Expr.const
-    | Alternatives of constr list
-    | Not of constr
 
   val mk_empty_temv : unit -> tenv
 
@@ -101,11 +107,15 @@ module rec Typ : sig
 
   val elt_typ : tenv -> Name.t -> t
 
+  val elt_typ_opt : tenv -> Name.t -> t option
+
   val add_elt_typ : tenv -> Name.t -> t -> unit
 
-  val fields : tenv -> Name.t -> field list
+  val record : tenv -> Name.t -> record
 
-  val add_fields : tenv -> Name.t -> field list -> unit
+  val record_opt : tenv -> Name.t -> record option
+
+  val add_record : tenv -> Name.t -> record -> unit
 
   val pp : Format.formatter -> t -> unit
 
@@ -116,7 +126,7 @@ end = struct
   let mk_empty_temv () =
     { base_type_decl_tbl= BaseTypeDeclTbl.create 256
     ; array_elt_typ_tbl= NameTbl.create 256
-    ; record_field_tbl= NameTbl.create 256 }
+    ; record_tbl= NameTbl.create 256 }
 
 
   let find_base_type_decl tenv base_type_decl =
@@ -131,11 +141,15 @@ end = struct
 
   let elt_typ tenv = NameTbl.find tenv.array_elt_typ_tbl
 
+  let elt_typ_opt tenv = NameTbl.find_opt tenv.array_elt_typ_tbl
+
   let add_elt_typ tenv = NameTbl.add tenv.array_elt_typ_tbl
 
-  let fields tenv = NameTbl.find tenv.record_field_tbl
+  let record tenv = NameTbl.find tenv.record_tbl
 
-  let add_fields tenv = NameTbl.add tenv.record_field_tbl
+  let record_opt tenv = NameTbl.find_opt tenv.record_tbl
+
+  let add_record tenv = NameTbl.add tenv.record_tbl
 
   let pp fmt t =
     let open Libadalang in
@@ -164,8 +178,8 @@ end = struct
       match typ with
       | Enum enum_typ ->
           pp_enum_typ fmt enum_typ
-      | Signed ->
-          Format.fprintf fmt "signed"
+      | Signed (i1, i2) ->
+          Format.fprintf fmt "signed (%a, %a)" Int_lit.pp i1 Int_lit.pp i2
       | Modular m ->
           Format.fprintf fmt "mod %a" Int_lit.pp m
     in
@@ -319,6 +333,7 @@ and Expr : sig
 
   and named = {index: discrete_choice list; aggregate_expr: t}
 
+  (** discrete_choice defined in Ada RM 3.8.1 *)
   and discrete_choice =
     [`Expr of t | `DiscreteType of Typ.discrete_type | `Range of range]
 
