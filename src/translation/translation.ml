@@ -1,7 +1,5 @@
 open Libadalang
 
-let global_tenv = IR.Typ.mk_empty_temv ()
-
 (** translate an expression to a name checking for an implicit deref *)
 let name_from_expr (check_implicit : bool) (expr : IR.Expr.t) :
     IR.Expr.name option =
@@ -69,6 +67,14 @@ let convert_mode mode =
   | Some #ModeOut.t ->
       ModeOut
 
+
+type type_context = {tenv: IR.Typ.tenv; translating: IR.Name.Set.t}
+
+let from_tenv tenv = {tenv; translating= IR.Name.Set.empty}
+
+let global_tenv = IR.Typ.mk_empty_tenv ()
+
+let global_ctx = from_tenv global_tenv
 
 let mk orig_node desc =
   { IR.Typ.desc
@@ -181,7 +187,7 @@ and translate_variable (var : Lal_typ.identifier) =
     | None ->
         Utils.lal_error "Cannot find declaration for %a" Utils.pp_node var
   in
-  let typ = translate_type_of_expr global_tenv (var :> Expr.t) in
+  let typ = translate_type_of_expr global_ctx (var :> Expr.t) in
   let offset = no_offset var typ in
   with_data var typ IR.Expr.(Lval (Var (Source {vname; vdecl}), offset))
 
@@ -240,7 +246,7 @@ and translate_vardecl (decl : BasicDecl.t) =
 
 
 and translate_record_access (dotted_name : DottedName.t) : IR.Expr.name =
-  let typ = translate_type_of_expr global_tenv (dotted_name :> Expr.t) in
+  let typ = translate_type_of_expr global_ctx (dotted_name :> Expr.t) in
   match DottedName.f_suffix dotted_name with
   | #Identifier.t as ident -> (
       let prefix = (DottedName.f_prefix dotted_name :> Expr.t) in
@@ -271,7 +277,7 @@ and translate_record_access (dotted_name : DottedName.t) : IR.Expr.name =
 and translate_contract_cases (_contract_cases : ContractCases.t) = assert false
 
 and translate_unop (unop : UnOp.t) =
-  let typ = translate_type_of_expr global_tenv (unop :> Expr.t) in
+  let typ = translate_type_of_expr global_ctx (unop :> Expr.t) in
   let op = UnOp.f_op unop in
   let expr = translate_expr (UnOp.f_expr unop :> Expr.t) in
   (* First check if there is a user defined operator *)
@@ -301,7 +307,7 @@ and translate_unop (unop : UnOp.t) =
 
 
 and translate_binop (binop : BinOp.t) =
-  let typ = translate_type_of_expr global_tenv (binop :> Expr.t) in
+  let typ = translate_type_of_expr global_ctx (binop :> Expr.t) in
   let op = BinOp.f_op binop in
   let lexpr = translate_expr (BinOp.f_left binop :> Expr.t) in
   let rexpr = translate_expr (BinOp.f_right binop :> Expr.t) in
@@ -387,13 +393,13 @@ and translate_membership_expr (membership_expr : MembershipExpr.t) =
     |> ExprAlternativesList.f_list
     |> List.map ~f:translate_membership_choice
   in
-  let typ = translate_type_of_expr global_tenv (membership_expr :> Expr.t) in
+  let typ = translate_type_of_expr global_ctx (membership_expr :> Expr.t) in
   let expr_node = IR.Expr.Membership (prefix_expr, kind, choices) in
   with_data membership_expr typ expr_node
 
 
 and translate_base_aggregate (base_aggregate : BaseAggregate.t) =
-  let typ = translate_type_of_expr global_tenv (base_aggregate :> Expr.t) in
+  let typ = translate_type_of_expr global_ctx (base_aggregate :> Expr.t) in
   match%nolazy base_aggregate with
   | #NullRecordAggregate.t ->
       with_data base_aggregate typ IR.Expr.NullRecordAggregate
@@ -516,7 +522,7 @@ and translate_name (name : Name.t) : IR.Expr.t =
   | #Lal_typ.literal as literal when Lal_typ.is_literal literal ->
       translate_literal literal
   | #Lal_typ.call as call when Lal_typ.is_call call ->
-      let typ = translate_type_of_expr global_tenv call in
+      let typ = translate_type_of_expr global_ctx call in
       let function_call =
         with_data call typ
           (IR.Expr.FunctionCall (translate_call call, no_offset call typ))
@@ -530,7 +536,7 @@ and translate_name (name : Name.t) : IR.Expr.t =
       match name_from_expr false prefix_expr with
       | Some name ->
           let typ =
-            translate_type_of_expr global_tenv (explicit_deref :> Expr.t)
+            translate_type_of_expr global_ctx (explicit_deref :> Expr.t)
           in
           let lval =
             with_data explicit_deref typ
@@ -545,7 +551,7 @@ and translate_name (name : Name.t) : IR.Expr.t =
       let name = translate_call_expr call_expr in
       {name with node= Name name}
   | #QualExpr.t as qual_expr ->
-      let typ = translate_type_of_expr global_tenv qual_expr in
+      let typ = translate_type_of_expr global_ctx qual_expr in
       let qual_expr_node = translate_qual_expr qual_expr in
       let name =
         let offset = no_offset qual_expr typ in
@@ -558,7 +564,7 @@ and translate_name (name : Name.t) : IR.Expr.t =
 
 and translate_literal (literal : Lal_typ.literal) =
   let open IR.Expr in
-  let typ = translate_type_of_expr global_tenv (literal :> Expr.t) in
+  let typ = translate_type_of_expr global_ctx (literal :> Expr.t) in
   match%nolazy literal with
   | #IntLiteral.t as int_literal ->
       try_or_undefined "IntLiteral.p_denoted_value"
@@ -771,7 +777,7 @@ and translate_type_or_expr (expr : Expr.t) : IR.Expr.type_or_expr =
   | #Lal_typ.identifier as ident -> (
     match try Name.p_name_designated_type ident with _ -> None with
     | Some typ ->
-        `Type (translate_type_decl global_tenv typ)
+        `Type (translate_type_decl global_ctx typ)
     | None ->
         (* a simple expression in this case *)
         `Expr (translate_expr expr) )
@@ -812,7 +818,7 @@ and translate_fun_or_lval (implicit_deref : bool) (expr : Expr.t) =
 
 
 and translate_attribute_ref (attribute_ref : AttributeRef.t) =
-  let typ = translate_type_of_expr global_tenv (attribute_ref :> Expr.t) in
+  let typ = translate_type_of_expr global_ctx (attribute_ref :> Expr.t) in
   let attribute = Utils.attribute (AttributeRef.f_attribute attribute_ref) in
   let prefix = (AttributeRef.f_prefix attribute_ref :> Expr.t) in
   match attribute with
@@ -868,7 +874,7 @@ and translate_call_expr (call_expr : CallExpr.t) =
       (* This is a cast *)
       match%nolazy CallExpr.f_suffix call_expr with
       | `AssocList {list= [`ParamAssoc {f_r_expr}]} ->
-          let typ = translate_type_decl global_tenv lal_typ in
+          let typ = translate_type_decl global_ctx lal_typ in
           let suffix_expr = translate_expr (f_r_expr :> Expr.t) in
           with_data call_expr typ
             (IR.Expr.Cast ((typ, suffix_expr), no_offset call_expr typ))
@@ -895,7 +901,7 @@ and translate_call_expr (call_expr : CallExpr.t) =
 
 and translate_array_index name call_expr =
   (* Regular array access *)
-  let typ = translate_type_of_expr global_tenv (call_expr :> Expr.t) in
+  let typ = translate_type_of_expr global_ctx (call_expr :> Expr.t) in
   let suffix = CallExpr.f_suffix call_expr in
   match%nolazy suffix with
   | `AssocList {list= assoc_list} -> (
@@ -925,7 +931,7 @@ and translate_array_index name call_expr =
 
 and translate_array_slice name call_expr =
   (* Array slicing *)
-  let typ = translate_type_of_expr global_tenv (call_expr :> Expr.t) in
+  let typ = translate_type_of_expr global_ctx (call_expr :> Expr.t) in
   let suffix = CallExpr.f_suffix call_expr in
   match%nolazy suffix with
   | `AssocList {list= [`ParamAssoc {f_r_expr}]} -> (
@@ -986,7 +992,7 @@ and translate_discrete_range (range : Lal_typ.discrete_range) :
       (* Explicit discrete subtype indication. We translate the underlying type
          expression and see if it's a range constraint *)
       to_discrete_type
-        (translate_type_expr global_tenv (type_expr :> TypeExpr.t))
+        (translate_type_expr global_ctx (type_expr :> TypeExpr.t))
   | #Lal_typ.range as range ->
       `Range (translate_range range)
 
@@ -1039,7 +1045,7 @@ and translate_qual_expr (qual_expr : QualExpr.t) : IR.Expr.qual_expr =
   let subtype_mark =
     match try Name.p_name_designated_type prefix with _ -> None with
     | Some typ ->
-        translate_type_decl global_tenv typ
+        translate_type_decl global_ctx typ
     | None ->
         Utils.legality_error
           "Expect a subtype mark for prefix of qualified expression, found %a"
@@ -1052,7 +1058,7 @@ and translate_qual_expr (qual_expr : QualExpr.t) : IR.Expr.qual_expr =
 and translate_box_expr (_box_expr : BoxExpr.t) = assert false
 
 and translate_if_expr (if_expr : IfExpr.t) =
-  let typ = translate_type_of_expr global_tenv (if_expr :> Expr.t) in
+  let typ = translate_type_of_expr global_ctx (if_expr :> Expr.t) in
   let translate_else_part = function
     | Some expr ->
         translate_expr (expr :> Expr.t)
@@ -1118,7 +1124,7 @@ and translate_case_expr (case_expr : CaseExpr.t) =
     List.fold ~f:translate_alternative ~init:([], None)
       (CaseExprAlternativeList.f_list (CaseExpr.f_cases case_expr))
   in
-  let typ = translate_type_of_expr global_tenv (case_expr :> Expr.t) in
+  let typ = translate_type_of_expr global_ctx (case_expr :> Expr.t) in
   let case_node = IR.Expr.Case (expr, List.rev alternatives, others) in
   with_data case_expr typ case_node
 
@@ -1143,7 +1149,7 @@ and translate_quantified_expr (quantified_expr : QuantifiedExpr.t) =
   let predicate =
     translate_expr (QuantifiedExpr.f_expr quantified_expr :> Expr.t)
   in
-  let typ = translate_type_of_expr global_tenv (quantified_expr :> Expr.t) in
+  let typ = translate_type_of_expr global_ctx (quantified_expr :> Expr.t) in
   let quantified_node =
     IR.Expr.Quantified (quantifier, iterator_spec, predicate)
   in
@@ -1193,12 +1199,12 @@ and translate_iterator_specification (loop_spec : ForLoopSpec.t) =
 
 
 and translate_allocator (allocator : Allocator.t) =
-  let typ = translate_type_of_expr global_tenv (allocator :> Expr.t) in
+  let typ = translate_type_of_expr global_ctx (allocator :> Expr.t) in
   let allocator_node =
     match Allocator.f_type_or_expr allocator with
     | #SubtypeIndication.t as subtype_indication ->
         let type_expr =
-          translate_type_expr global_tenv (subtype_indication :> TypeExpr.t)
+          translate_type_expr global_ctx (subtype_indication :> TypeExpr.t)
         in
         IR.Expr.Allocator (type_expr, None)
     | #QualExpr.t as qual_expr ->
@@ -1226,7 +1232,7 @@ and translate_raise_expr (raise_expr : RaiseExpr.t) =
       ~f:(fun e -> translate_expr (e :> Expr.t))
       (RaiseExpr.f_error_message raise_expr)
   in
-  let typ = translate_type_of_expr global_tenv (raise_expr :> Expr.t) in
+  let typ = translate_type_of_expr global_ctx (raise_expr :> Expr.t) in
   let raise_node = IR.Expr.Raise (name, msg) in
   with_data raise_expr typ raise_node
 
@@ -1237,7 +1243,7 @@ and translate_bound e =
   match expr.node with Const c -> IR.Typ.Static c | _ -> Dynamic expr
 
 
-and translate_custom_type tenv base_type_decl =
+and translate_custom_type ctx base_type_decl =
   (* handle translation of some custom types specially. Return an optional
      type. [Some typ] means that [typ] is the custom translation of the type.
      If [None], the given type is not a type with a special representation. *)
@@ -1278,25 +1284,25 @@ and translate_custom_type tenv base_type_decl =
         ; orig_node }
   | "system.address" ->
       (* Annotate the type with Address name *)
-      Some {(translate_type_decl_impl tenv base_type_decl) with name= Address}
+      Some {(translate_type_decl_impl ctx base_type_decl) with name= Address}
   | _ ->
       None
 
 
-and translate_type_decl_impl tenv base_type_decl =
+and translate_type_decl_impl ctx base_type_decl =
   let typ =
     match%nolazy (base_type_decl :> BaseTypeDecl.t) with
     | #TypeDecl.t as type_decl ->
         (* This is a type declaration, the type depends on the type definition *)
-        translate_type_def tenv type_decl (TypeDecl.f_type_def type_decl)
+        translate_type_def ctx type_decl (TypeDecl.f_type_def type_decl)
     | `SubtypeDecl {f_subtype} ->
         (* For a subtype, we can simply fallback on calling the translation for
            a type expr *)
-        translate_subtype_indication tenv f_subtype
+        translate_subtype_indication ctx f_subtype
     | #IncompleteTypeDecl.t as incomplete -> (
       match BaseTypeDecl.p_next_part base_type_decl with
       | Some type_decl ->
-          translate_type_decl tenv type_decl
+          translate_type_decl ctx type_decl
       | None ->
           (* Did not found next part, try to find the complete type calling
              complete_type_decl *)
@@ -1309,7 +1315,7 @@ and translate_type_decl_impl tenv base_type_decl =
     | #ClasswideTypeDeclType.t -> (
       match AdaNode.parent base_type_decl with
       | Some (#BaseTypeDecl.t as base_type) ->
-          translate_type_decl tenv base_type
+          translate_type_decl ctx base_type
       | Some n ->
           Utils.lal_error "For %a, found parent %a, expecting a BaseTypeDecl"
             Utils.pp_node base_type_decl Utils.pp_node n
@@ -1325,23 +1331,23 @@ and translate_type_decl_impl tenv base_type_decl =
 
 and translate_constraint _tenv _orig_type _constr = assert false
 
-and translate_subtype_indication tenv subtype_indication =
-  let orig_type = get_orig_type tenv (subtype_indication :> TypeExpr.t) in
+and translate_subtype_indication ctx subtype_indication =
+  let orig_type = get_orig_type ctx (subtype_indication :> TypeExpr.t) in
   let new_type =
     match SubtypeIndication.f_constraint subtype_indication with
     | Some constr ->
         (* Add the constraints to the type *)
-        translate_constraint tenv orig_type constr
+        translate_constraint ctx orig_type constr
     | None ->
         orig_type
   in
   {new_type with parent_type= Some orig_type}
 
 
-and get_orig_type tenv type_expr =
+and get_orig_type ctx type_expr =
   let open Option.Monad_infix in
   match
-    TypeExpr.p_designated_type_decl type_expr >>| translate_type_decl tenv
+    TypeExpr.p_designated_type_decl type_expr >>| translate_type_decl ctx
   with
   | Some orig_type ->
       orig_type
@@ -1350,7 +1356,7 @@ and get_orig_type tenv type_expr =
         type_expr
 
 
-and translate_type_def tenv type_decl type_def =
+and translate_type_def ctx type_decl type_def =
   match%nolazy (type_def :> TypeDef.t) with
   | #EnumTypeDef.t as enum_type_def ->
       translate_enum_type_def type_decl enum_type_def
@@ -1359,24 +1365,24 @@ and translate_type_def tenv type_decl type_def =
   | #ModIntTypeDef.t as mod_type_def ->
       translate_mod_type_def type_decl mod_type_def
   | #RecordTypeDef.t as record_type_def ->
-      translate_record_type_def tenv type_decl record_type_def
+      translate_record_type_def ctx type_decl record_type_def
   | #RealTypeDef.t as real_type_def ->
       translate_real_type_def type_decl real_type_def
   | `AnonymousTypeAccessDef {f_type_decl} ->
       (* anonymous access *)
-      let root_typ = translate_type_decl tenv f_type_decl in
+      let root_typ = translate_type_decl ctx f_type_decl in
       mk type_decl (Access (AccessKind, Object root_typ))
   | `TypeAccessDef {f_subtype_indication} ->
       (* access definition *)
       let root_typ =
-        translate_type_expr tenv (f_subtype_indication :> TypeExpr.t)
+        translate_type_expr ctx (f_subtype_indication :> TypeExpr.t)
       in
       mk type_decl (Access (AccessKind, Object root_typ))
   | #DerivedTypeDef.t as derived_type_def ->
-      translate_derived_type_def tenv type_decl derived_type_def
+      translate_derived_type_def ctx type_decl derived_type_def
   | #ArrayTypeDef.t as array_type_def ->
       (* type Arr is array (1 .. 10) of Integer *)
-      mk (trans_array_type_def tenv (get_type_name type_decl) array_type_def)
+      translate_array_type_def ctx type_decl array_type_def
   | #PrivateTypeDef.t
   | `DerivedTypeDef {f_has_with_private= `WithPrivatePresent _} -> (
     match BaseTypeDecl.p_next_part type_decl with
@@ -1443,7 +1449,7 @@ and translate_mod_type_def type_decl mod_type_def =
   mk type_decl (Discrete (Modular modulus, None))
 
 
-and translate_discriminants tenv type_decl =
+and translate_discriminants ctx type_decl =
   let translate_discriminant discriminant =
     (* A discriminant spec possibly contains multiple ids, but they all
        share the same type, so map them to the name and the type of
@@ -1452,7 +1458,7 @@ and translate_discriminants tenv type_decl =
       let type_expr =
         (DiscriminantSpec.f_type_expr discriminant :> TypeExpr.t)
       in
-      let typ = translate_type_expr tenv type_expr in
+      let typ = translate_type_expr ctx type_expr in
       match typ.desc with
       | Discrete discrete ->
           `Discrete discrete
@@ -1517,7 +1523,7 @@ and translate_discriminant_constraints type_decl =
 
 
 (** Translate a record definition into a list of fields. *)
-and translate_fields tenv base_record_def =
+and translate_fields ctx base_record_def =
   let translate_component field_constraint component =
     (* This function translates one component to a list of fields with the
        given field constraint *)
@@ -1525,7 +1531,7 @@ and translate_fields tenv base_record_def =
     | `ComponentDecl
         { f_ids= `DefiningNameList {list= ids}
         ; f_component_def= `ComponentDef {f_type_expr} } ->
-        let field_typ = translate_type_expr tenv (f_type_expr :> TypeExpr.t) in
+        let field_typ = translate_type_expr ctx (f_type_expr :> TypeExpr.t) in
         List.map
           ~f:(fun name ->
             {IR.Typ.field_name= name; field_typ; field_constraint} )
@@ -1636,21 +1642,26 @@ and translate_fields tenv base_record_def =
     component_list
 
 
-and translate_record_type_def tenv type_decl record_type_def =
+and translate_record_type_def ctx type_decl record_type_def =
   (* record definition *)
   let name = Utils.decl_defining_name type_decl in
-  ( match IR.Typ.record_opt tenv name with
+  ( match IR.Typ.record_opt ctx.tenv name with
   | Some _ ->
       (* The record is already registered *)
+      ()
+  | None when IR.Name.Set.mem name ctx.translating ->
+      (* The record is being translated *)
       ()
   | None ->
       (* First insert a dummy record description, to avoid infinite
          recursion with recursive structures *)
-      IR.Typ.add_record tenv name {discriminants= []; fields= []} ;
-      let discriminants = translate_discriminants tenv type_decl in
+      let new_ctx =
+        {ctx with translating= IR.Name.Set.add name ctx.translating}
+      in
+      let discriminants = translate_discriminants new_ctx type_decl in
       let base_record_def = RecordTypeDef.f_record_def record_type_def in
-      let fields = translate_fields tenv base_record_def in
-      IR.Typ.add_record tenv name {discriminants; fields} ) ;
+      let fields = translate_fields new_ctx base_record_def in
+      IR.Typ.add_record ctx.tenv name {discriminants; fields} ) ;
   let record_constraint = translate_discriminant_constraints type_decl in
   mk type_decl (Record (name, record_constraint))
 
@@ -1660,13 +1671,13 @@ and translate_real_type_def type_decl _real_type_def =
   mk type_decl (Real Float)
 
 
-and translate_derived_type_def tenv type_decl derived_type_def =
+and translate_derived_type_def ctx type_decl derived_type_def =
   (* type Derived is new SomeType *)
   let subtype_indication =
     DerivedTypeDef.f_subtype_indication derived_type_def
   in
   let derived_from_type =
-    translate_subtype_indication tenv subtype_indication
+    translate_subtype_indication ctx subtype_indication
   in
   match derived_from_type.desc with
   | Record (derived_rec_name, _) ->
@@ -1679,16 +1690,19 @@ and translate_derived_type_def tenv type_decl derived_type_def =
       let name = Utils.decl_defining_name type_decl in
       (* If the type we derive from is a record, check for any record
          extension. *)
-      ( match IR.Typ.record_opt tenv name with
+      ( match IR.Typ.record_opt ctx.tenv name with
       | Some _ ->
+          ()
+      | None when IR.Name.Set.mem name ctx.translating ->
+          (* The record is being translated *)
           ()
       | None ->
           (* First insert a dummy record description, to avoid infinite
              recursion with recursive structures *)
-          IR.Typ.add_record tenv name {discriminants= []; fields= []} ;
-          let derived_record = IR.Typ.record tenv derived_rec_name in
+          IR.Typ.add_record ctx.tenv name {discriminants= []; fields= []} ;
+          let derived_record = IR.Typ.record ctx.tenv derived_rec_name in
           let discriminants =
-            match translate_discriminants tenv type_decl with
+            match translate_discriminants ctx type_decl with
             | [] ->
                 (* No discriminants, they are inherited from the parent, see
                    Ada RM 3.4 (11) *)
@@ -1700,53 +1714,79 @@ and translate_derived_type_def tenv type_decl derived_type_def =
           let new_record =
             match record_extension with
             | Some record_def ->
-                let fields = translate_fields tenv record_def in
+                let fields = translate_fields ctx record_def in
                 {IR.Typ.discriminants; fields= fields @ derived_record.fields}
             | None ->
                 {discriminants; fields= derived_record.fields}
           in
-          IR.Typ.add_record tenv name new_record ) ;
+          IR.Typ.add_record ctx.tenv name new_record ) ;
       let record_constraint = translate_discriminant_constraints type_decl in
       mk type_decl (Record (name, record_constraint))
   | _ ->
       derived_from_type
 
 
-and translate_type_decl tenv base_type_decl =
+and translate_array_type_def ctx type_decl =
+function%nolazy
+  | `ArrayTypeDef {f_indices; f_component_type= `ComponentDef {f_type_expr}} -> (
+    let name = Utils.decl_defining_name type_decl in
+    match IR.Typ.elt_typ_opt ctx.tenv name with
+    | Some _ ->
+        (* elt_type is already known *)
+        ()
+    | None when Name.Set.mem name ctx.translating ->
+        (* type is being translated, avoid recursion *)
+        ()
+    | None ->
+      let new_ctx = {ctx with translating= Name.Set.add name ctx.translating} in
+      let elt_typ = translate_type_expr new_ctx (f_type_expr :> TypeExpr.t) in
+      let base_constraint =
+        match%nolazy f_indices with
+        | `ConstrainedArrayIndices {f_list= `ConstraintList {list= constraints}}
+          ->
+            (* For constrained array indices, we fallback on calling
+             * the translation of a list constraint *)
+            trans_array_constraints ctx constraints
+        | `UnconstrainedArrayIndices _ as unconstrained ->
+            trans_unconstrained_array ctx unconstrained
+      in
+      Array (name, elt_typ, base_constraint)
+
+and translate_type_decl ctx base_type_decl =
   (* Mnemoize this function in tenv *)
-  match IR.Typ.find_base_type_decl tenv base_type_decl with
+  match IR.Typ.find_base_type_decl ctx.tenv base_type_decl with
   | Some typ ->
       typ
   | None ->
       let result =
-        match translate_custom_type tenv base_type_decl with
+        match translate_custom_type ctx base_type_decl with
         | Some typ ->
             typ
         | None ->
-            translate_type_decl_impl tenv base_type_decl
+            translate_type_decl_impl ctx base_type_decl
       in
-      IR.Typ.add_base_type_decl tenv base_type_decl result ;
+      IR.Typ.add_base_type_decl ctx.tenv base_type_decl result ;
       result
 
 
-and translate_type_expr tenv (type_expr : TypeExpr.t) : IR.Typ.t =
+and translate_type_expr ctx (type_expr : TypeExpr.t) : IR.Typ.t =
   match type_expr with
   | #SubtypeIndication.t as subtype_indication ->
-      translate_subtype_indication tenv subtype_indication
+      translate_subtype_indication ctx subtype_indication
   | _ -> (
     match TypeExpr.p_designated_type_decl type_expr with
     | Some type_decl ->
-        translate_type_decl tenv type_decl
+        translate_type_decl ctx type_decl
     | None ->
         Utils.lal_error "Cannot find designated type for %a" Utils.pp_node
           type_expr )
 
 
-and translate_type_of_expr (tenv : IR.Typ.tenv) (expr : [< Expr.t]) : IR.Typ.t
+and translate_type_of_expr (ctx : type_context) (expr : [< Expr.t]) : IR.Typ.t
     =
   match Expr.p_expression_type expr with
   | Some base_type_decl ->
-      translate_type_decl tenv base_type_decl
+      translate_type_decl ctx base_type_decl
   | None ->
       Utils.lal_error "cannot find type for expression %s"
         (AdaNode.short_image expr)

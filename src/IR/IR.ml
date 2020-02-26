@@ -99,7 +99,7 @@ module rec Typ : sig
 
   and static_expr = Int_lit.t
 
-  val mk_empty_temv : unit -> tenv
+  val mk_empty_tenv : unit -> tenv
 
   val find_base_type_decl : tenv -> [< Libadalang.BaseTypeDecl.t] -> t option
 
@@ -123,7 +123,7 @@ module rec Typ : sig
 end = struct
   include Typ
 
-  let mk_empty_temv () =
+  let mk_empty_tenv () =
     { base_type_decl_tbl= BaseTypeDeclTbl.create 256
     ; array_elt_typ_tbl= NameTbl.create 256
     ; record_tbl= NameTbl.create 256 }
