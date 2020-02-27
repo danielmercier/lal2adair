@@ -1339,38 +1339,38 @@ and translate_type_decl_impl ctx base_type_decl =
   {(mk base_type_decl typ.desc) with aspects= merge_aspects typ.aspects aspects}
 
 
-and translate_discriminant_constraint discriminant_constraint = assert false
+and translate_discriminant_constraint _discriminant_constraint = assert false
 
-and translate_constraint designated_type constr =
+and translate_constraint designated_type constr : IR.Typ.type_constraint option
+    =
   match%nolazy constr with
   | (#IndexConstraint.t | #DiscriminantConstraint.t) as composite_constraint
     -> (
     (* It is not possible to differentiate grammatically from index and
-         discriminant constraint. Some constraints on array can appear as
-         DiscriminantConstraint *)
-    match designated_type with
-    | IR.Typ.Record (record, _) -> (
+       discriminant constraint. Some constraints on array can appear as
+       DiscriminantConstraint *)
+    match designated_type.IR.Typ.desc with
+    | Record (_, _) -> (
       (* In this case index constraint should not happen *)
       match composite_constraint with
       | #DiscriminantConstraint.t as discriminant_constraint ->
-          let _ = translate_discriminant_constraint discriminant_constraint in
-          designated_type
+          translate_discriminant_constraint discriminant_constraint
       | _ ->
           Utils.legality_error "Expecting an array type for constraint"
             Utils.pp_node constr )
     | _ ->
-        designated_type )
+        None )
   | `RangeConstraint {RangeConstraint.f_range= `RangeSpec {f_range}} -> (
     (* Ada RM 3.5 range constraints are defined for scalar types *)
     match f_range with
     | #Lal_typ.range as range -> (
       match designated_type.desc with
-      | Discrete (base, _) ->
+      | Discrete (_, _) ->
           let range_expr = translate_range range in
-          {designated_type with desc= Discrete (base, Some range_expr)}
+          Some (RangeConstraint range_expr)
       | Real _ ->
           (* TODO Real is also a scalar type *)
-          designated_type
+          None
       | _ ->
           Utils.legality_error
             "Expecting a scalar types for range constraint %a" Utils.pp_node
@@ -1380,7 +1380,7 @@ and translate_constraint designated_type constr =
           Utils.pp_node constr )
   | #DigitsConstraint.t | #DeltaConstraint.t ->
       (* TODO Implement this constraint *)
-      designated_type
+      None
 
 
 and translate_subtype_indication ctx subtype_indication =
@@ -1392,15 +1392,12 @@ and translate_subtype_indication ctx subtype_indication =
         Utils.lal_error "Cannot get the designated type for type expr %a"
           Utils.pp_node subtype_indication
   in
-  let new_type =
-    match SubtypeIndication.f_constraint subtype_indication with
-    | Some constr ->
-        (* Add the constraints to the type *)
-        translate_constraint designated_type constr
-    | None ->
-        designated_type
-  in
-  {new_type with parent_type= Some designated_type}
+  match SubtypeIndication.f_constraint subtype_indication with
+  | Some constr ->
+      (* Add the constraints to the type *)
+      (designated_type, translate_constraint designated_type constr)
+  | None ->
+      (designated_type, None)
 
 
 and translate_type_def ctx type_decl type_def =
@@ -1435,7 +1432,7 @@ and translate_type_def ctx type_decl type_def =
       translate_access_to_subp_def ctx type_decl access_to_subp_def
   | #InterfaceTypeDef.t ->
       mk type_decl
-        (IR.Typ.Record ({discriminants= []; fields= []}, RecConstrained []))
+        (IR.Typ.Record ({discriminants= []; fields= []}, DiscrConstrained []))
   | #FormalDiscreteTypeDef.t as type_def ->
       (* This is a type for generics. Since we expand generics we should
          never resolve a type to this *)
@@ -1539,7 +1536,7 @@ and translate_type_discriminant type_decl =
   match discriminants with
   | [] ->
       (* No discriminants, thus this is a constrained record *)
-      IR.Typ.RecConstrained []
+      IR.Typ.DiscrConstrained []
   | h :: _ -> (
       (* The head determines weather this is a constrained record or not *)
       let constrained discriminant =
@@ -1556,10 +1553,10 @@ and translate_type_discriminant type_decl =
       in
       match DiscriminantSpec.f_default_expr h with
       | Some _ ->
-          RecConstrained (List.concat_map ~f:constrained discriminants)
+          DiscrConstrained (List.concat_map ~f:constrained discriminants)
       | None ->
           (* Unconstrained record *)
-          RecUnconstrained )
+          DiscrUnconstrained )
 
 
 (** Translate a record definition into a list of fields. *)
@@ -1794,13 +1791,13 @@ and translate_array_type_def ctx type_decl =
   function%nolazy
   | `ArrayTypeDef {f_indices; f_component_type= `ComponentDef {f_type_expr}} ->
       let elt_typ = translate_type_expr ctx (f_type_expr :> TypeExpr.t) in
-      let indices =
+      let index_constraint =
         match%nolazy f_indices with
         | `ConstrainedArrayIndices {f_list= `ConstraintList {list= constraints}}
           ->
             (* Ada RM 3.6 (5) *)
             let indices = List.map ~f:translate_index_constraint constraints in
-            {IR.Typ.indices; constrained= Constrained}
+            (IR.Typ.IndexConstrained, indices)
         | `UnconstrainedArrayIndices
             {f_types= `UnconstrainedArrayIndexList {list}} ->
             (* Ada RM 3.6 (3) *)
@@ -1814,9 +1811,9 @@ and translate_array_type_def ctx type_decl =
               to_discrete_type subtype_indication typ
             in
             let indices = List.map ~f:translate_to_discrete list in
-            {IR.Typ.indices; constrained= Constrained}
+            (IR.Typ.IndexUnconstrained, indices)
       in
-      mk type_decl (Array (indices, elt_typ))
+      mk type_decl (Array (elt_typ, index_constraint))
 
 
 and translate_access_to_subp_def ctx type_decl access_to_subp_def =
@@ -1884,14 +1881,14 @@ and translate_type_decl ctx base_type_decl =
       result
 
 
-and translate_type_expr ctx (type_expr : TypeExpr.t) : IR.Typ.t =
+and translate_type_expr ctx (type_expr : TypeExpr.t) : IR.Typ.type_expr =
   match type_expr with
   | #SubtypeIndication.t as subtype_indication ->
       translate_subtype_indication ctx subtype_indication
   | _ -> (
     match TypeExpr.p_designated_type_decl type_expr with
     | Some type_decl ->
-        translate_type_decl ctx type_decl
+        (translate_type_decl ctx type_decl, None)
     | None ->
         Utils.lal_error "Cannot find designated type for %a" Utils.pp_node
           type_expr )

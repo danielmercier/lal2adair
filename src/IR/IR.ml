@@ -76,7 +76,9 @@ module rec Typ : sig
     | DiscrConstrained of (Name.t * Expr.t) list
     | DiscrUnconstrained
 
-  and index_constraint = constrained * discrete_type list
+  and index_constrained = IndexConstrained | IndexUnconstrained
+
+  and index_constraint = index_constrained * discrete_type list
 
   and range_constraint = Expr.range
 
@@ -98,8 +100,6 @@ module rec Typ : sig
     {not_alternatives: alternatives list; alternatives: alternatives list}
 
   and alternatives = {discriminant: Name.t; choices: Expr.discrete_choice list}
-
-  and constrained = Constrained | Unconstrained
 
   and static_expr = Int_lit.t
 
