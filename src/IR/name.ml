@@ -12,6 +12,7 @@ end
 
 module Hashtbl = Caml.Hashtbl.Make (Name)
 module Set = Caml.Set.Make (Name)
+module Map = Caml.Map.Make (Name)
 include Name
 
 let from_defining_name (name : DefiningName.t) = (name :> t)

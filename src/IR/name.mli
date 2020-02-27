@@ -6,6 +6,8 @@ module Hashtbl : Caml.Hashtbl.S with type key := t
 
 module Set : Caml.Set.S with type elt := t
 
+module Map : Caml.Map.S with type key := t
+
 val from_defining_name : DefiningName.t -> t
 
 val from_subtype_indication : SubtypeIndication.t -> t

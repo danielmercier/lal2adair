@@ -1334,7 +1334,59 @@ and translate_type_decl_impl ctx base_type_decl =
   {(mk base_type_decl typ.desc) with aspects= merge_aspects typ.aspects aspects}
 
 
-and translate_discriminant_constraint _discriminant_constraint = assert false
+and translate_discriminant_constraint record discriminant_constraint =
+  let compute_pos i pos_map {IR.Typ.discr_name} =
+    IR.Name.Map.add discr_name i pos_map
+  in
+  (* First compute the position of each discriminant to sort them *)
+  let pos_map =
+    List.foldi ~f:compute_pos record.IR.Typ.discriminants
+      ~init:IR.Name.Map.empty
+  in
+  (* Compare the position of the discriminants using pos_map *)
+  let compare (name_a, _) (name_b, _) =
+    match
+      (IR.Name.Map.find_opt name_a pos_map, IR.Name.Map.find_opt name_b pos_map)
+    with
+    | Some pos1, Some pos2 ->
+        Pervasives.compare pos1 pos2
+    | None, Some _ ->
+        Utils.lal_error "Cannot find name for %a" IR.Name.pp name_a
+    | _, None ->
+        Utils.lal_error "Cannot find name for %a" IR.Name.pp name_b
+  in
+  let discr_from_constraints =
+    try
+      AssocList.p_zip_with_params
+        (DiscriminantConstraint.f_constraints discriminant_constraint)
+    with _ ->
+      Utils.lal_error "Cannot compute params for discriminant constraint %a"
+        Utils.pp_node discriminant_constraint
+  in
+  let from_param_actual {ParamActual.param; actual} =
+    let name =
+      match param with
+      | Some def_name ->
+          IR.Name.from_defining_name def_name
+      | None ->
+          Utils.lal_error
+            "Cannot get defining name for discriminant constraint %a"
+            Utils.pp_node discriminant_constraint
+    in
+    let expr =
+      match actual with
+      | Some actual_expr ->
+          translate_expr actual_expr
+      | None ->
+          Utils.lal_error "Cannot get actual for discriminant constraint %a"
+            Utils.pp_node discriminant_constraint
+    in
+    (name, expr)
+  in
+  (* Sort the discriminants *)
+  IR.Typ.DiscrConstrained
+    (List.map ~f:from_param_actual discr_from_constraints |> List.sort ~compare)
+
 
 and translate_constraint designated_type constr =
   match%nolazy constr with
@@ -1344,24 +1396,65 @@ and translate_constraint designated_type constr =
        discriminant constraint. Some constraints on array can appear as
        DiscriminantConstraint *)
     match designated_type.IR.Typ.desc with
-    | Record (_, _) -> (
+    | Record (record, _) -> (
       (* In this case index constraint should not happen *)
       match composite_constraint with
       | #DiscriminantConstraint.t as discriminant_constraint ->
-          translate_discriminant_constraint discriminant_constraint
+          let desc =
+            IR.Typ.Record
+              ( record
+              , translate_discriminant_constraint record
+                  discriminant_constraint )
+          in
+          {designated_type with desc}
       | _ ->
-          Utils.legality_error "Expecting an array type for constraint"
+          Utils.legality_error "Expecting an array type for constraint %a"
             Utils.pp_node constr )
+    | Array (elt_typ, _) ->
+        (* In this case we can either have a discriminant constraint, or an index
+         constraint. This is because we cannot differentiate both
+         grammatically *)
+        let constraint_list =
+          match composite_constraint with
+          | #DiscriminantConstraint.t as discriminant_constraint ->
+              let to_range =
+                (* filter one assoc to a range *)
+                function%nolazy
+                | `DiscriminantAssoc
+                    {DiscriminantAssoc.f_discr_expr= #Lal_typ.range as range}
+                  ->
+                    (range :> AdaNode.t)
+                | assoc ->
+                    Utils.legality_error "Expected a range, got %a"
+                      Utils.pp_node assoc
+              in
+              DiscriminantConstraint.f_constraints discriminant_constraint
+              |> AssocList.f_list |> List.map ~f:to_range
+          | #IndexConstraint.t as index_constraint ->
+              IndexConstraint.f_constraints index_constraint
+              |> ConstraintList.f_list
+          | _ ->
+              Utils.legality_error "Expecting an array type for constraint %a"
+                Utils.pp_node constr
+        in
+        let desc =
+          IR.Typ.Array
+            ( elt_typ
+            , ( IndexConstrained
+              , List.map ~f:translate_index_constraint constraint_list ) )
+        in
+        {designated_type with desc}
     | _ ->
-        designated_type )
+        Utils.legality_error "Expecting a composite type for constraint %a"
+          Utils.pp_node constr )
   | `RangeConstraint {RangeConstraint.f_range= `RangeSpec {f_range}} -> (
     (* Ada RM 3.5 range constraints are defined for scalar types *)
     match f_range with
     | #Lal_typ.range as range -> (
       match designated_type.desc with
-      | Discrete (_, _) ->
-          let _range_expr = translate_range range in
-          designated_type
+      | Discrete (base, _) ->
+          let range_expr = translate_range range in
+          {designated_type with desc= Discrete (base, Some range_expr)}
       | Real _ ->
           (* TODO Real is also a scalar type *)
           designated_type
@@ -1775,7 +1868,7 @@ and translate_index_constraint = function
     | `Range range ->
         (* In this case, we need to translate the range to a type.
            Use a base type of root integer type, see Ada RM 3.6 (8) *)
-        (root_integer, Some (`Defined, range)) )
+        (root_integer, Some range) )
   | node ->
       Utils.legality_error "Expecting a discrete range for index %a"
         Utils.pp_node node
@@ -1807,7 +1900,7 @@ and translate_array_type_def ctx type_decl =
             let indices = List.map ~f:translate_to_discrete list in
             (IR.Typ.IndexUnconstrained, indices)
       in
-      mk type_decl (Array (elt_typ, (`Defined, index_constraint)))
+      mk type_decl (Array (elt_typ, index_constraint))
 
 
 and translate_access_to_subp_def ctx type_decl access_to_subp_def =
