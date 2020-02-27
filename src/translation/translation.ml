@@ -1309,15 +1309,10 @@ and translate_type_decl_impl ctx base_type_decl =
         (* For a subtype, we can simply fallback on calling the translation for
            a type expr *)
         translate_subtype_indication ctx f_subtype
-    | #IncompleteTypeDecl.t as incomplete -> (
-      match BaseTypeDecl.p_next_part base_type_decl with
-      | Some type_decl ->
-          translate_type_decl ctx type_decl
-      | None ->
-          (* Did not found next part, try to find the complete type calling
-             complete_type_decl *)
-          Utils.lal_error "Cannot find complete type decl for %a."
-            Utils.pp_node incomplete )
+    | #IncompleteTypeDecl.t as incomplete ->
+        (* Since we always get the full view of a type, this should not happen *)
+        Utils.lal_error "Cannot get full view for type %a" Utils.pp_node
+          incomplete
     | #DiscreteBaseSubtypeDecl.t ->
         (* TODO: we do not yet compute base types, return root integer here
            instead *)
@@ -1341,8 +1336,7 @@ and translate_type_decl_impl ctx base_type_decl =
 
 and translate_discriminant_constraint _discriminant_constraint = assert false
 
-and translate_constraint designated_type constr : IR.Typ.type_constraint option
-    =
+and translate_constraint designated_type constr =
   match%nolazy constr with
   | (#IndexConstraint.t | #DiscriminantConstraint.t) as composite_constraint
     -> (
@@ -1359,18 +1353,18 @@ and translate_constraint designated_type constr : IR.Typ.type_constraint option
           Utils.legality_error "Expecting an array type for constraint"
             Utils.pp_node constr )
     | _ ->
-        None )
+        designated_type )
   | `RangeConstraint {RangeConstraint.f_range= `RangeSpec {f_range}} -> (
     (* Ada RM 3.5 range constraints are defined for scalar types *)
     match f_range with
     | #Lal_typ.range as range -> (
       match designated_type.desc with
       | Discrete (_, _) ->
-          let range_expr = translate_range range in
-          Some (RangeConstraint range_expr)
+          let _range_expr = translate_range range in
+          designated_type
       | Real _ ->
           (* TODO Real is also a scalar type *)
-          None
+          designated_type
       | _ ->
           Utils.legality_error
             "Expecting a scalar types for range constraint %a" Utils.pp_node
@@ -1380,7 +1374,7 @@ and translate_constraint designated_type constr : IR.Typ.type_constraint option
           Utils.pp_node constr )
   | #DigitsConstraint.t | #DeltaConstraint.t ->
       (* TODO Implement this constraint *)
-      None
+      designated_type
 
 
 and translate_subtype_indication ctx subtype_indication =
@@ -1395,9 +1389,9 @@ and translate_subtype_indication ctx subtype_indication =
   match SubtypeIndication.f_constraint subtype_indication with
   | Some constr ->
       (* Add the constraints to the type *)
-      (designated_type, translate_constraint designated_type constr)
+      translate_constraint designated_type constr
   | None ->
-      (designated_type, None)
+      designated_type
 
 
 and translate_type_def ctx type_decl type_def =
@@ -1781,7 +1775,7 @@ and translate_index_constraint = function
     | `Range range ->
         (* In this case, we need to translate the range to a type.
            Use a base type of root integer type, see Ada RM 3.6 (8) *)
-        (root_integer, Some range) )
+        (root_integer, Some (`Defined, range)) )
   | node ->
       Utils.legality_error "Expecting a discrete range for index %a"
         Utils.pp_node node
@@ -1813,7 +1807,7 @@ and translate_array_type_def ctx type_decl =
             let indices = List.map ~f:translate_to_discrete list in
             (IR.Typ.IndexUnconstrained, indices)
       in
-      mk type_decl (Array (elt_typ, index_constraint))
+      mk type_decl (Array (elt_typ, (`Defined, index_constraint)))
 
 
 and translate_access_to_subp_def ctx type_decl access_to_subp_def =
@@ -1881,14 +1875,14 @@ and translate_type_decl ctx base_type_decl =
       result
 
 
-and translate_type_expr ctx (type_expr : TypeExpr.t) : IR.Typ.type_expr =
+and translate_type_expr ctx (type_expr : TypeExpr.t) : IR.Typ.t =
   match type_expr with
   | #SubtypeIndication.t as subtype_indication ->
       translate_subtype_indication ctx subtype_indication
   | _ -> (
     match TypeExpr.p_designated_type_decl type_expr with
     | Some type_decl ->
-        (translate_type_decl ctx type_decl, None)
+        translate_type_decl ctx type_decl
     | None ->
         Utils.lal_error "Cannot find designated type for %a" Utils.pp_node
           type_expr )

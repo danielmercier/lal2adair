@@ -78,16 +78,14 @@ module rec Typ : sig
 
   and index_constrained = IndexConstrained | IndexUnconstrained
 
-  and index_constraint = index_constrained * discrete_type list
+  and index_constraint =
+    (index_constrained * discrete_type list) type_constraint
 
-  and range_constraint = Expr.range
+  and range_constraint = Expr.range type_constraint
 
-  and type_constraint =
-    | DiscriminantConstraint of discriminant_constraint
-    | IndexConstraint of index_constraint
-    | RangeConstraint of range_constraint
-
-  and type_expr = t * type_constraint option
+  (** The constraint on a type can either come for the type declaration, or
+      from a type expression *)
+  and 'a type_constraint = [`TypeDecl | `TypeExpr] * 'a
 
   and discriminant = {discr_name: Name.t; discr_typ: discr_typ}
 
@@ -154,7 +152,7 @@ end = struct
           Format.fprintf fmt "mod %a" Int_lit.pp m
     in
     match range with
-    | Some range ->
+    | Some (_, range) ->
         Format.fprintf fmt "%a range %a" pp_typ typ Expr.pp_range range
     | None ->
         Format.fprintf fmt "%a" pp_typ typ
