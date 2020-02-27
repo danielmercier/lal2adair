@@ -17,10 +17,14 @@ let pp_node fmt n = Format.pp_print_string fmt (AdaNode.short_image n)
 let decl_defining_name basic_decl =
   try
     match BasicDecl.p_defining_name basic_decl with
-    | Some def_name ->
-        def_name
-    | None ->
-        lal_error "Cannot find a defining name for %a" pp_node basic_decl
+    | Some defining_name ->
+        IR.Name.from_defining_name defining_name
+    | None -> (
+      match (basic_decl :> BasicDecl.t) with
+      | #AnonymousTypeDecl.t as anon_type_decl ->
+          IR.Name.from_anonymous_type_decl anon_type_decl
+      | _ ->
+          lal_error "Cannot find a defining name for %a" pp_node basic_decl )
   with PropertyError s ->
     lal_error "Cannot find a defining name for %a: PropertyError %s" pp_node
       basic_decl s
@@ -29,12 +33,12 @@ let decl_defining_name basic_decl =
 let defining_name name =
   match (name :> Name.t) with
   | #DefiningName.t as defining_name ->
-      defining_name
+      IR.Name.from_defining_name defining_name
   | _ -> (
     try
       match Name.p_referenced_defining_name name with
-      | Some def_name ->
-          def_name
+      | Some defining_name ->
+          IR.Name.from_defining_name defining_name
       | None ->
           lal_error "Cannot find a defining name for %a" pp_node name
     with PropertyError s ->

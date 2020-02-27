@@ -211,13 +211,13 @@ package body A is
 
    procedure Test_Array_Aggregate is
       type Arr is array (1 .. 10) of Integer;
-      subtype Int1_5 is Integer range 3 .. 5;
+      subtype Int3_5 is Integer range 3 .. 5;
 
       A : Arr;
    begin
       A := (1 .. 5 | 6 => 42, others => 13);
       A := (1, 2, 3, 4, others => 13);
-      A := (Integer range 1 .. 2 => 12, Int1_5 => 21, others => 212);
+      A := (Integer range 1 .. 2 => 12, Int3_5 => 21, others => 212);
    end Test_Array_Aggregate;
 
    procedure Test_Allocator is

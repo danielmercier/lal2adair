@@ -14,9 +14,6 @@ module Mode = struct
   include Mode
 end
 
-module BaseTypeDeclTbl = Caml.Hashtbl.Make (Libadalang.BaseTypeDecl)
-module NameTbl = Caml.Hashtbl.Make (Libadalang.DefiningName)
-
 module rec Typ : sig
   type aspect = Volatile
 
@@ -35,19 +32,16 @@ module rec Typ : sig
     | UniversalInteger
     | Name of Name.t
 
-  and tenv =
-    { base_type_decl_tbl: t BaseTypeDeclTbl.t
-    ; array_elt_typ_tbl: t NameTbl.t
-    ; record_tbl: record NameTbl.t }
+  and tenv = {typ_tbl: t Name.Hashtbl.t}
 
   and desc =
     | Discrete of discrete_type
     | Real of real_typ
-    | Access of access_kind * access_typ
-    | Array of Name.t * discrete_type list * constrained
-    | Record of Name.t * record_constraint
+    | Access of access_kind
+    | Array of t * index_constraint
+    | Record of record * discriminant_constraint
 
-  and discrete_type = discrete_type_desc * Expr.range option
+  and discrete_type = discrete_type_desc * range_constraint option
 
   and discrete_type_desc =
     | Enum of enum_typ
@@ -62,9 +56,11 @@ module rec Typ : sig
   (** A bound can either be statically known or dynamic *)
   and bound = Static of Expr.const | Dynamic of Expr.t
 
-  and access_kind = AddressKind | AccessKind
+  and access_kind = AddressKind | AccessKind of access_typ
 
-  and access_typ = Object of t | Subprogram of subprogram_typ
+  (** To avoid any recursion, if the root type is an object, use it's name
+      instead *)
+  and access_typ = Object of Name.t | Subprogram of subprogram_typ
 
   and subprogram_typ =
     | Function of {args: param list; ret_typ: t}
@@ -72,18 +68,24 @@ module rec Typ : sig
 
   and param = {pname: Name.t; ptyp: t; pmode: Mode.t}
 
-  and array_typ =
-    {elt_typ: t; indicies: discrete_type list; constrained: constrained}
-
-  and constrained = Constrained | Unconstrained
-
   and real_typ = Float | Fixed
 
   and record = {discriminants: discriminant list; fields: field list}
 
-  and record_constraint =
-    | RecConstrained of (Name.t * Expr.t) list
-    | RecUnconstrained
+  and discriminant_constraint =
+    | DiscrConstrained of (Name.t * Expr.t) list
+    | DiscrUnconstrained
+
+  and index_constraint = constrained * discrete_type list
+
+  and range_constraint = Expr.range
+
+  and type_constraint =
+    | DiscriminantConstraint of discriminant_constraint
+    | IndexConstraint of index_constraint
+    | RangeConstraint of range_constraint
+
+  and type_expr = t * type_constraint option
 
   and discriminant = {discr_name: Name.t; discr_typ: discr_typ}
 
@@ -97,25 +99,15 @@ module rec Typ : sig
 
   and alternatives = {discriminant: Name.t; choices: Expr.discrete_choice list}
 
+  and constrained = Constrained | Unconstrained
+
   and static_expr = Int_lit.t
 
   val mk_empty_tenv : unit -> tenv
 
-  val find_base_type_decl : tenv -> [< Libadalang.BaseTypeDecl.t] -> t option
+  val find_opt : tenv -> Name.t -> t option
 
-  val add_base_type_decl : tenv -> [< Libadalang.BaseTypeDecl.t] -> t -> unit
-
-  val elt_typ : tenv -> Name.t -> t
-
-  val elt_typ_opt : tenv -> Name.t -> t option
-
-  val add_elt_typ : tenv -> Name.t -> t -> unit
-
-  val record : tenv -> Name.t -> record
-
-  val record_opt : tenv -> Name.t -> record option
-
-  val add_record : tenv -> Name.t -> record -> unit
+  val add : tenv -> Name.t -> t -> unit
 
   val pp : Format.formatter -> t -> unit
 
@@ -123,33 +115,11 @@ module rec Typ : sig
 end = struct
   include Typ
 
-  let mk_empty_tenv () =
-    { base_type_decl_tbl= BaseTypeDeclTbl.create 256
-    ; array_elt_typ_tbl= NameTbl.create 256
-    ; record_tbl= NameTbl.create 256 }
+  let mk_empty_tenv () = {typ_tbl= Name.Hashtbl.create 256}
 
+  let find_opt tenv name = Name.Hashtbl.find_opt tenv.typ_tbl name
 
-  let find_base_type_decl tenv base_type_decl =
-    BaseTypeDeclTbl.find_opt tenv.base_type_decl_tbl
-      (base_type_decl :> Libadalang.BaseTypeDecl.t)
-
-
-  let add_base_type_decl tenv base_type_decl =
-    BaseTypeDeclTbl.add tenv.base_type_decl_tbl
-      (base_type_decl :> Libadalang.BaseTypeDecl.t)
-
-
-  let elt_typ tenv = NameTbl.find tenv.array_elt_typ_tbl
-
-  let elt_typ_opt tenv = NameTbl.find_opt tenv.array_elt_typ_tbl
-
-  let add_elt_typ tenv = NameTbl.add tenv.array_elt_typ_tbl
-
-  let record tenv = NameTbl.find tenv.record_tbl
-
-  let record_opt tenv = NameTbl.find_opt tenv.record_tbl
-
-  let add_record tenv = NameTbl.add tenv.record_tbl
+  let add tenv name = Name.Hashtbl.add tenv.typ_tbl name
 
   let pp fmt t =
     let open Libadalang in
@@ -275,12 +245,10 @@ and Expr : sig
   and decl_scope = FunScope of funinfo | PackageScope
 
   and decl_kind =
-    | FormalVar of funinfo * varmode
+    | FormalVar of funinfo * Mode.t
     | ReturnVar
     | ForLoopVar of iterator_specification
     | Variable
-
-  and varmode = ModeIn | ModeOut | ModeInOut
 
   and fieldinfo = {fieldname: Name.t}
 
