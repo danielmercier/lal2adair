@@ -1,0 +1,5 @@
+(tests
+   (names test_type)
+   (flags (:standard -w -9) (-open Core_kernel))
+   (deps a.ads)
+   (libraries libadalang IR translation))
