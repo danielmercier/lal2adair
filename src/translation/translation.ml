@@ -1434,27 +1434,32 @@ and translate_constraint designated_type constr =
           Utils.legality_error "Expecting an array type for constraint %a"
             Utils.pp_node constr )
     | Array (elt_typ, _) ->
-        (* In this case we can either have a discriminant constraint, or an index
-         constraint. This is because we cannot differentiate both
-         grammatically *)
+        (* In this case we can either have a discriminant constraint, or an
+           index constraint. This is because we cannot differentiate both
+           grammatically *)
         (* TODO, the indices of the array should be used to determine the
            parent type of each index *)
         let constraint_list =
           match composite_constraint with
           | #DiscriminantConstraint.t as discriminant_constraint ->
-              let to_range =
-                (* filter one assoc to a range *)
+              let to_discrete_range =
+                (* filter one discriminant assoc to a discrete range *)
                 function%nolazy
                 | `DiscriminantAssoc
-                    {DiscriminantAssoc.f_discr_expr= #Lal_typ.range as range}
-                  ->
-                    (range :> AdaNode.t)
+                    { DiscriminantAssoc.f_discr_expr=
+                        #Lal_typ.range as discrete_range }
+                | `DiscriminantAssoc
+                    { DiscriminantAssoc.f_discr_expr=
+                        #Lal_typ.identifier as discrete_range }
+                  when Lal_typ.is_discrete_range discrete_range ->
+                    (discrete_range :> AdaNode.t)
                 | assoc ->
-                    Utils.legality_error "Expected a range, got %a"
+                    Utils.legality_error "Expected a discrete range, got %a"
                       Utils.pp_node assoc
               in
               DiscriminantConstraint.f_constraints discriminant_constraint
-              |> AssocList.f_list |> List.map ~f:to_range
+              |> AssocList.f_list
+              |> List.map ~f:to_discrete_range
           | #IndexConstraint.t as index_constraint ->
               IndexConstraint.f_constraints index_constraint
               |> ConstraintList.f_list
