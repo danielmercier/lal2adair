@@ -93,5 +93,5 @@ Test_Quantified:
   <ParenExpr a.adb:264:12-264:38> = (for all E of A => E = 42)
 Test_Attribute:
   <BinOp a.adb:275:12-275:39> = A'First + A'Last + A'Length
-  Error translating <BinOp a.adb:277:12-277:45>:
-    ("Translation__Utils.Lal_error(\"cannot find type for expression <BinOp a.adb:277:12-277:45>\")")
+  <BinOp a.adb:277:12-277:55> = Type(Arr)'First + Integer (Type(MyInt)'Last) + 
+                                A'Length

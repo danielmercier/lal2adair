@@ -274,6 +274,6 @@ package body A is
    begin
       X := A'First + A'Last + A'Length;
 
-      X := Arr'First + MyInt'Last + A'Length;
+      X := Arr'First + Integer (MyInt'Last) + A'Length;
    end Test_Attribute;
 end A;

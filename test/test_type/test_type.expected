@@ -1,0 +1,157 @@
+<TypeDecl ["My_Enum"] a.ads:5:4-5:69>
+  type My_Enum is (Red, Blue, Green, Black, White, Yellow, Orange);
+
+<TypeDecl ["My_Char_Enum"] a.ads:8:4-8:42>
+  type My_Char_Enum is ('0', '1', None);
+
+<TypeDecl ["My_Bool"] a.ads:11:4-11:32>
+  type Boolean is (False, True);
+
+<TypeDecl ["My_Int"] a.ads:15:4-15:35>
+  type My_Int is signed (-10, 10);
+
+<TypeDecl ["My_Mod"] a.ads:18:4-18:29>
+  type My_Mod is mod 12345;
+
+<TypeDecl ["My_Float"] a.ads:23:4-23:30>
+  type My_Float is Float;
+
+<TypeDecl ["My_Float_1_10"] a.ads:24:4-24:53>
+  type My_Float_1_10 is Float;
+
+<TypeDecl ["My_Ordinary_Fixed"] a.ads:29:4-29:59>
+  type My_Ordinary_Fixed is Float;
+
+<TypeDecl ["My_Decimal_Fixed"] a.ads:32:4-32:49>
+  type My_Decimal_Fixed is Float;
+
+<TypeDecl ["My_Decimal_Fixed_1_10"] a.ads:33:4-33:72>
+  type My_Decimal_Fixed_1_10 is Float;
+
+<TypeDecl ["Unconstrained_Array"] a.ads:38:4-38:69>
+  type Unconstrained_Array is
+    array (signed (-2147483648, 2147483647) range 1 .. +2 ** 31 - 1 range <>)
+    of Integer;
+
+<TypeDecl ["Unconstrained_Array_2D"] a.ads:39:4-39:90>
+  type Unconstrained_Array_2D is
+    array (signed (-2147483648, 2147483647) range 1 .. +2 ** 31 - 1 range <>,
+           signed (-2147483648, 2147483647) range 0 .. +2 ** 31 - 1 range <>)
+    of Integer;
+
+<TypeDecl ["Constrained_Array"] a.ads:43:4-43:72>
+  type Constrained_Array is
+    array (signed (-2147483648, 2147483647) range 1 .. 10) of Integer;
+
+<TypeDecl ["Constrained_Array_2D"] a.ads:45:4-45:70>
+  type Constrained_Array_2D is
+    array (signed (-9223372036854775808, 9223372036854775807) range 1 .. 10,
+           signed (-9223372036854775808, 9223372036854775807) range 11 .. 20)
+    of Integer;
+
+<TypeDecl ["Constrained_Array_Range"] a.ads:47:4-47:68>
+  type Constrained_Array_Range is
+    array (signed (-9223372036854775808, 9223372036854775807)
+             range Type(My_Int)'Range)
+    of Integer;
+
+<TypeDecl ["Constrained_Array_Range2"] a.ads:49:4-49:85>
+  type Constrained_Array_Range2 is
+    array (signed (-2147483648, 2147483647) range Type(Positive)'Range)
+    of Integer;
+
+<TypeDecl ["My_String"] a.ads:52:4-52:61>
+  type My_String is
+    array (signed (-2147483648, 2147483647) range 1 .. +2 ** 31 - 1 range <>)
+    of Character;
+
+<TypeDecl ["My_Rec"] a.ads:55:4-57:15>
+  type My_Rec is record A : Integer; B : Integer end record;
+
+<TypeDecl ["My_Rec_Variant"] a.ads:60:4-81:15>
+  type My_Rec_Variant is
+    record (C1 : (Red, Blue, Green, Black, White, Yellow, Orange), C2 : (Red,
+          Blue, Green, Black, White, Yellow, Orange))
+      A : Integer;
+      B : Integer;
+      C1 in Red => C : Integer;
+      not (C1 in Red) and C1 in Blue | Green => D : Integer;
+      not (C1 in Blue | Green and C1 in Red) => E : Integer;
+      not (C1 in Blue | Green and C1 in Red) and C2 in Green => F : Integer;
+      not (C1 in Blue | Green and C1 in Red) and C2 in Green => G : Integer;
+      not (C2 in Green and C1 in Blue | Green
+        and C1 in Red) and C2 in Yellow .. Orange => I : Integer
+      end record;
+
+<TypeDecl ["My_Tag"] a.ads:84:4-86:15>
+  type My_Tag is record A : Integer; B : Integer end record;
+
+<TypeDecl ["My_Child"] a.ads:89:4-91:15>
+  type My_Child is
+    record C : Integer; D : Integer; A : Integer; B : Integer end record;
+
+<TypeDecl ["My_Interface"] a.ads:94:4-94:35>
+  type My_Interface is record  end record;
+
+<TypeDecl ["My_Access_To_Object"] a.ads:98:4-98:46>
+  type My_Access_To_Object is access My_Int;
+
+<TypeDecl ["My_Access_To_Subprogram1"] a.ads:101:4-101:54>
+  type My_Access_To_Subprogram1 is access subprogram;
+
+<TypeDecl ["My_Access_To_Subprogram2"] a.ads:102:4-106:42>
+  type My_Access_To_Subprogram2 is access subprogram;
+
+<TypeDecl ["My_Access_To_Subprogram3"] a.ads:107:4-108:57>
+  type My_Access_To_Subprogram3 is access subprogram;
+
+<SubtypeDecl ["My_Int_Subtype"] a.ads:112:4-112:37>
+  type My_Int_Subtype is signed (-10, 10);
+
+<SubtypeDecl ["My_Int_Subtype_Dot"] a.ads:117:4-117:55>
+  type My_Int_Subtype_Dot is signed (-10, 10) range 1 .. 10;
+
+<SubtypeDecl ["My_Int_Subtype_Range"] a.ads:119:4-119:70>
+  type My_Int_Subtype_Range is
+    signed (-10, 10) range Type(My_Int_Subtype)'Range;
+
+<SubtypeDecl ["My_Mod_Subtype_Dot"] a.ads:122:4-122:55>
+  type My_Mod_Subtype_Dot is mod 12345 range 1 .. 10;
+
+<SubtypeDecl ["My_Mod_Subtype_Range"] a.ads:124:4-124:74>
+  type My_Mod_Subtype_Range is
+    mod 12345 range Type(My_Mod_Subtype_Dot)'Range;
+
+<SubtypeDecl ["My_Enum_Subtype_Dot"] a.ads:127:4-127:65>
+  type My_Enum_Subtype_Dot is
+    (Red, Blue, Green, Black, White, Yellow, Orange) range Black .. Yellow;
+
+<SubtypeDecl ["My_Enum_Subtype_Range"] a.ads:129:4-129:77>
+  type My_Enum_Subtype_Range is
+    (Red, Blue, Green, Black, White, Yellow, Orange)
+      range Type(My_Enum_Subtype_Dot)'Range;
+
+<SubtypeDecl ["My_Fixed_Subtype_Dot"] a.ads:132:4-132:71>
+  type My_Fixed_Subtype_Dot is Float;
+
+<SubtypeDecl ["My_Fixed_Subtype_Range"] a.ads:134:4-135:40>
+  type My_Fixed_Subtype_Range is Float;
+
+<SubtypeDecl ["My_Decimal_Subtype_Digits"] a.ads:138:4-138:67>
+  type My_Decimal_Subtype_Digits is Float;
+
+<SubtypeDecl ["My_Decimal_Subtype_Digits_Dot"] a.ads:140:4-141:24>
+  type My_Decimal_Subtype_Digits_Dot is Float;
+
+<SubtypeDecl ["My_Decimal_Subtype_Digits_Range"] a.ads:143:4-144:49>
+  type My_Decimal_Subtype_Digits_Range is Float;
+
+<SubtypeDecl ["My_Ordinary_Subtype_Digits"] a.ads:147:4-147:70>
+  type My_Ordinary_Subtype_Digits is Float;
+
+<SubtypeDecl ["My_Ordinary_Subtype_Digits_Dot"] a.ads:149:4-150:24>
+  type My_Ordinary_Subtype_Digits_Dot is Float;
+
+<SubtypeDecl ["My_Ordinary_Subtype_Digits_Range"] a.ads:152:4-153:50>
+  type My_Ordinary_Subtype_Digits_Range is Float;
+
