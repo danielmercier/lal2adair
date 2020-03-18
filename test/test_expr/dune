@@ -1,5 +1,5 @@
 (tests
-   (names test)
+   (names test_expr)
    (flags (:standard -w -9) (-open Core_kernel))
    (deps a.adb)
    (libraries libadalang IR translation))

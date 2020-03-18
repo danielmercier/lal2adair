@@ -5,3 +5,5 @@ type t = {name: name; pos: Int_lit.t}
 and name = EnumLiteral of Name.t | StdCharLiteral of string
 
 val pp : Format.formatter -> t -> unit
+
+val pp_name : Format.formatter -> name -> unit

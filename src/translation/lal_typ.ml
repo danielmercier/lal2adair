@@ -23,8 +23,7 @@ type call = [identifier | CallExpr.t | ExplicitDeref.t]
 
 type range = [BinOp.t | AttributeRef.t]
 
-type discrete_range =
-  [identifier | BinOp.t | AttributeRef.t | DiscreteSubtypeIndication.t]
+type discrete_range = [identifier | range | SubtypeIndication.t]
 
 type subprogram_decl =
   [ BasicSubpDecl.t
@@ -172,5 +171,5 @@ let is_discrete_range = function
       Option.is_some (try Name.p_name_designated_type ident with _ -> None)
   | #range as range ->
       is_range range
-  | #DiscreteSubtypeIndication.t ->
+  | #SubtypeIndication.t ->
       true

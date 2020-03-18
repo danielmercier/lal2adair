@@ -17,27 +17,33 @@ end
 module rec Typ : sig
   type aspect = Volatile
 
+  type orig_node = [Libadalang.BaseTypeDecl.t | Libadalang.TypeExpr.t]
+
   type t =
     { desc: desc
     ; aspects: aspect list
     ; name: type_name
     ; parent_type: t option
-    ; orig_node: Libadalang.BaseTypeDecl.t }
+    ; orig_node: orig_node }
 
   and type_name =
     | StdCharacter
     | StdWideCharacter
     | StdWideWideCharacter
     | Address
+    (* Identifies Boolean types (Ada RM 3.5.3) *)
+    | Boolean
     | UniversalInteger
     | Name of Name.t
 
   and tenv = {typ_tbl: t Name.Hashtbl.t}
 
   and desc =
+    (* Discrete and Real are Scalar types (Ada RM 3.5) *)
     | Discrete of discrete_type
-    | Real of real_typ
-    | Access of access_kind
+    | Real of real_type
+    | Access of access_type
+    (* Array types (Ada RM 3.6) *)
     | Array of t * index_constraint
     | Record of record * discriminant_constraint
 
@@ -45,22 +51,14 @@ module rec Typ : sig
 
   and discrete_type_desc =
     | Enum of enum_typ
+    (* Integer types (Ada RM 3.5.4) *)
     | Signed of Int_lit.t * Int_lit.t
     | Modular of Int_lit.t
 
+  (** Enumeration types (Ada RM 3.5.1) *)
   and enum_typ =
     | Character of Int_lit.t (* Length of the character type *)
-    | Boolean
     | OtherEnum of Enum.name list
-
-  (** A bound can either be statically known or dynamic *)
-  and bound = Static of Expr.const | Dynamic of Expr.t
-
-  and access_kind = AddressKind | AccessKind of access_typ
-
-  (** To avoid any recursion, if the root type is an object, use it's name
-      instead *)
-  and access_typ = Object of Name.t | Subprogram of subprogram_typ
 
   and subprogram_typ =
     | Function of {args: param list; ret_typ: t}
@@ -68,33 +66,54 @@ module rec Typ : sig
 
   and param = {pname: Name.t; ptyp: t; pmode: Mode.t}
 
-  and real_typ = Float | Fixed
+  (** Real types (Ada RM 3.5.6) *)
+  and real_type =
+    (* TODO: Floating point types (Ada RM 3.5.7) *)
+    | Float
+    (* TODO: Fixed point types (Ada RM 3.5.9) *)
+    | Fixed
 
-  and record = {discriminants: discriminant list; fields: field list}
+  and range_constraint = Expr.range
 
+  and index_constrained = IndexConstrained | IndexUnconstrained
+
+  (** Index constraint (Ada RM 3.6.1)
+      The indices are either all constrained or all unconstrained *)
+  and index_constraint = index_constrained * discrete_type list
+
+  and discr_type = [`Access of access_type | `Discrete of discrete_type]
+
+  (* Discriminant (Ada RM 3.7) *)
+  and discriminant = {discr_name: Name.t; discr_typ: discr_type}
+
+  (** Discriminants constraints (Ada RM 3.7.1)
+      Either all discriminants are constrained or unconstrained *)
   and discriminant_constraint =
     | DiscrConstrained of (Name.t * Expr.t) list
     | DiscrUnconstrained
 
-  and index_constrained = IndexConstrained | IndexUnconstrained
+  (** Record types (Ada RM 3.8) *)
+  and record = {discriminants: discriminant list; fields: field list}
 
-  and index_constraint = index_constrained * discrete_type list
-
-  and range_constraint = Expr.range
-
-  and discriminant = {discr_name: Name.t; discr_typ: discr_typ}
-
-  and discr_typ = [`Access of access_typ | `Discrete of discrete_type]
-
+  (** Component (Ada RM 3.8 (6/3)) *)
   and field =
     {field_name: Name.t; field_typ: t; field_constraint: field_constraint}
+
+  (** Variant part (Ada RM 3.8.1)
+      All variant that lead to a field are translated to one constraint *)
+  and alternatives = {discriminant: Name.t; choices: Expr.discrete_choice list}
 
   and field_constraint =
     {not_alternatives: alternatives list; alternatives: alternatives list}
 
-  and alternatives = {discriminant: Name.t; choices: Expr.discrete_choice list}
-
-  and static_expr = Int_lit.t
+  (** Access types (Ada RM 3.10)
+      To avoid any recursion, if the root type is an object, use it's name
+      instead *)
+  and access_type =
+    (* access to object (Ada RM 3.10 (3)) *)
+    | Object of Name.t
+    (* access to subprogram (Ada RM 3.10 (5)) *)
+    | Subprogram of subprogram_typ
 
   val mk_empty_tenv : unit -> tenv
 
@@ -102,9 +121,13 @@ module rec Typ : sig
 
   val add : tenv -> Name.t -> t -> unit
 
+  (* Pretty print a full description of the type *)
+  val pp_full : Format.formatter -> t -> unit
+
+  (* Pretty print the name of the type *)
   val pp : Format.formatter -> t -> unit
 
-  val pp_discrete_typ : Format.formatter -> discrete_type -> unit
+  val pp_discrete_type : Format.formatter -> discrete_type -> unit
 end = struct
   include Typ
 
@@ -114,29 +137,17 @@ end = struct
 
   let add tenv name = Name.Hashtbl.add tenv.typ_tbl name
 
-  let pp fmt t =
-    let open Libadalang in
-    Format.pp_print_string fmt
-      (AdaNode.text (Option.value_exn (BaseTypeDecl.f_name t.orig_node)))
-
-
-  let _pp_bound fmt = function
-    | Typ.Static const ->
-        Expr.pp_const fmt const
-    | Dynamic e ->
-        Expr.pp fmt e
-
-
   let pp_enum_typ fmt = function
     | Character c ->
         Format.fprintf fmt "Character(%a)" Int_lit.pp c
-    | Boolean ->
-        Format.fprintf fmt "Boolean"
-    | OtherEnum _ ->
-        Format.fprintf fmt "Enum"
+    | OtherEnum enums ->
+        let pp_sep fmt () = Format.fprintf fmt ",@ " in
+        Format.fprintf fmt "(%a)"
+          (Format.pp_print_list ~pp_sep Enum.pp_name)
+          enums
 
 
-  let pp_discrete_typ fmt (typ, range) =
+  let pp_discrete_type fmt (typ, range) =
     let pp_typ fmt typ =
       match typ with
       | Enum enum_typ ->
@@ -151,6 +162,152 @@ end = struct
         Format.fprintf fmt "@[<2>%a@ range %a@]" pp_typ typ Expr.pp_range range
     | None ->
         Format.fprintf fmt "%a" pp_typ typ
+
+
+  let pp_real_type fmt = function
+    | Float ->
+        Format.pp_print_string fmt "Float"
+    | Fixed ->
+        Format.pp_print_string fmt "Fixed"
+
+
+  let pp_access_type fmt = function
+    | Object name ->
+        Format.fprintf fmt "access %a" Name.pp name
+    | Subprogram _ ->
+        Format.fprintf fmt "access subprogram"
+
+
+  let rec pp_full fmt typ =
+    let pp_desc fmt desc =
+      (* In that case, write the description of the type *)
+      match desc with
+      | Discrete discrete_typ ->
+          pp_discrete_type fmt discrete_typ
+      | Real real_typ ->
+          pp_real_type fmt real_typ
+      | Access access_type ->
+          pp_access_type fmt access_type
+      | Array (elt_typ, index_constraint) ->
+          pp_array_type fmt (elt_typ, index_constraint)
+      | Record (record, discriminant_constraint) ->
+          pp_record_type fmt (record, discriminant_constraint)
+    in
+    Format.fprintf fmt "@[<2>type %a is@ %a;@]" pp typ pp_desc typ.desc
+
+
+  and pp_array_type fmt (elt_typ, index_constraint) =
+    let pp_index_constraint fmt (index_constrained, indices) =
+      let pp_index_constrained fmt discrete_type =
+        match index_constrained with
+        | IndexConstrained ->
+            pp_discrete_type fmt discrete_type
+        | IndexUnconstrained ->
+            Format.fprintf fmt "%a range <>" pp_discrete_type discrete_type
+      in
+      let pp_sep fmt () = Format.fprintf fmt ",@ " in
+      Format.fprintf fmt "%a"
+        (Format.pp_print_list ~pp_sep pp_index_constrained)
+        indices
+    in
+    Format.fprintf fmt "@[array (@[%a@])@ of %a@]" pp_index_constraint
+      index_constraint pp elt_typ
+
+
+  and pp_record_type fmt (record, discriminant_constraint) =
+    let pp_field fmt field =
+      let pp_field_constraint fmt field_constraint =
+        let pp_alternatives fmt alternatives =
+          let pp_sep fmt () = Format.fprintf fmt "@ | " in
+          Format.fprintf fmt "%a in %a" Name.pp alternatives.discriminant
+            (Format.pp_print_list ~pp_sep Expr.pp_discrete_choice)
+            alternatives.choices
+        in
+        let pp_sep fmt () = Format.fprintf fmt "@ and " in
+        let pp_alternatives_list =
+          Format.pp_print_list ~pp_sep pp_alternatives
+        in
+        match
+          (field_constraint.not_alternatives, field_constraint.alternatives)
+        with
+        | [], [] ->
+            (* No constraint *)
+            ()
+        | [], alternatives ->
+            Format.fprintf fmt "%a =>@ " pp_alternatives_list alternatives
+        | not_alternatives, [] ->
+            Format.fprintf fmt "not (%a) =>@ " pp_alternatives_list
+              not_alternatives
+        | not_alternatives, alternatives ->
+            Format.fprintf fmt "not (%a) and %a =>@ " pp_alternatives_list
+              not_alternatives pp_alternatives_list alternatives
+      in
+      Format.fprintf fmt "@[<2>%a@]%a : %a" pp_field_constraint
+        field.field_constraint Name.pp field.field_name pp field.field_typ
+    in
+    let pp_discriminant_constraint fmt discriminant_constraint =
+      let pp_disciminant fmt (discriminant, expr) =
+        let pp_expr fmt = function
+          | Some expr ->
+              Format.fprintf fmt " => %a" Expr.pp expr
+          | None ->
+              ()
+        in
+        let pp_discr_typ fmt = function
+          | `Access access_typ ->
+              pp_access_type fmt access_typ
+          | `Discrete discrete_type ->
+              pp_discrete_type fmt discrete_type
+        in
+        Format.fprintf fmt "%a : %a%a" Name.pp discriminant.discr_name
+          pp_discr_typ discriminant.discr_typ pp_expr expr
+      in
+      let discriminant_list =
+        match discriminant_constraint with
+        | DiscrConstrained constraints -> (
+            let result =
+              List.map2
+                ~f:(fun discriminant (_, expr) -> (discriminant, Some expr))
+                record.discriminants constraints
+            in
+            match result with Ok ok -> ok | Unequal_lengths -> assert false )
+        | DiscrUnconstrained ->
+            List.map
+              ~f:(fun discriminant -> (discriminant, None))
+              record.discriminants
+      in
+      match discriminant_list with
+      | [] ->
+          ()
+      | _ ->
+          let pp_sep fmt () = Format.fprintf fmt ",@ " in
+          Format.fprintf fmt " (%a)"
+            (Format.pp_print_list ~pp_sep pp_disciminant)
+            discriminant_list
+    in
+    let pp_sep fmt () = Format.fprintf fmt ";@ " in
+    Format.fprintf fmt "@[<hv 2>record@[%a@]@ %a@ end record@]"
+      pp_discriminant_constraint discriminant_constraint
+      (Format.pp_print_list ~pp_sep pp_field)
+      record.fields
+
+
+  let pp fmt typ =
+    match typ.name with
+    | StdCharacter ->
+        Format.pp_print_string fmt "Character"
+    | StdWideCharacter ->
+        Format.pp_print_string fmt "Wide_Character"
+    | StdWideWideCharacter ->
+        Format.pp_print_string fmt "Wide_Wide_Character"
+    | Address ->
+        Format.pp_print_string fmt "Address"
+    | Boolean ->
+        Format.pp_print_string fmt "Boolean"
+    | UniversalInteger ->
+        Format.pp_print_string fmt "Universal_Integer"
+    | Name name ->
+        Name.pp fmt name
 end
 
 and Expr : sig
@@ -305,6 +462,8 @@ and Expr : sig
   val pp_range : Format.formatter -> range -> unit
 
   val pp_const : Format.formatter -> const -> unit
+
+  val pp_discrete_choice : Format.formatter -> discrete_choice -> unit
 end = struct
   include Expr
 
@@ -404,12 +563,6 @@ end = struct
       Format.fprintf fmt "(@[%a@])"
         (Format.pp_print_list ~pp_sep pp_record_association)
         record_aggregate
-    in
-    let pp_discrete_choice fmt = function
-      | `Expr e ->
-          pp fmt e
-      | #discrete_range as range ->
-          pp_discrete_range fmt range
     in
     let pp_positional fmt assoc = pp fmt assoc in
     let pp_named fmt assoc =
@@ -635,8 +788,8 @@ end = struct
 
 
   and pp_discrete_range fmt = function
-    | `DiscreteType discrete_typ ->
-        Typ.pp_discrete_typ fmt discrete_typ
+    | `DiscreteType discrete_type ->
+        Typ.pp_discrete_type fmt discrete_type
     | `Range range ->
         pp_range fmt range
 
@@ -667,4 +820,11 @@ end = struct
           pp_index_arg index
     | Result {fname} ->
         Format.fprintf fmt "@[%a'Result@]" Name.pp fname
+
+
+  and pp_discrete_choice fmt = function
+    | `Expr e ->
+        pp fmt e
+    | #discrete_range as range ->
+        pp_discrete_range fmt range
 end

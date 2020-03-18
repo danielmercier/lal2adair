@@ -10,7 +10,9 @@ let legality_error fmt =
   Format.kasprintf (fun msg -> raise (Legality_error msg)) fmt
 
 
-let log_warning fmt = Format.printf fmt
+let log_warning fmt =
+  Format.kasprintf (fun msg -> Format.printf "%s@." msg) fmt
+
 
 let pp_node fmt n = Format.pp_print_string fmt (AdaNode.short_image n)
 

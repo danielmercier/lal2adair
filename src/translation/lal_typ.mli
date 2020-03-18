@@ -16,7 +16,7 @@ type call = [identifier | CallExpr.t | ExplicitDeref.t]
 
 type range = [BinOp.t | AttributeRef.t]
 
-type discrete_range = [identifier | range | DiscreteSubtypeIndication.t]
+type discrete_range = [identifier | range | SubtypeIndication.t]
 
 val is_range : [< range] -> bool
 (** return true if the given range is a legal range. A legal range is either
