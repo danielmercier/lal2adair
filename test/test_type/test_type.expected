@@ -155,3 +155,73 @@
 <SubtypeDecl ["My_Ordinary_Subtype_Digits_Range"] a.ads:152:4-153:50>
   type My_Ordinary_Subtype_Digits_Range is Float;
 
+<SubtypeDecl ["Small_Positive"] a.ads:159:4-159:53>
+  type Small_Positive is signed (-2147483648, 2147483647) range 1 .. 10;
+
+<SubtypeDecl ["Constrained_Array_Subtype"] a.ads:160:4-160:78>
+  type Constrained_Array_Subtype is
+    array (signed (-2147483648, 2147483647) range 1 .. 10) of Integer;
+
+<SubtypeDecl ["Constrained_Array_Subtype_Range"] a.ads:162:4-163:52>
+  type Constrained_Array_Subtype_Range is
+    array (signed (-2147483648, 2147483647) range 1 .. 10) of Integer;
+
+<SubtypeDecl ["Constrained_Array_Attribute_Range"] a.ads:166:4-167:50>
+  type Constrained_Array_Attribute_Range is
+    array (signed (-9223372036854775808, 9223372036854775807)
+             range Type(Small_Positive)'Range)
+    of Integer;
+
+<SubtypeDecl ["Constrained_Array_Subtype_Dot_Range"] a.ads:169:4-170:37>
+  type Constrained_Array_Subtype_Dot_Range is
+    array (signed (-9223372036854775808, 9223372036854775807) range 1 .. 10)
+    of Integer;
+
+<SubtypeDecl ["My_Rec_Variant_Constrained_Named"] a.ads:173:4-174:46>
+  type My_Rec_Variant_Constrained_Named is
+    record (C1 : (Red, Blue, Green, Black, White, Yellow, Orange) => 
+          Red, C2 : (Red, Blue, Green, Black, White, Yellow, Orange) => 
+          Blue)
+      A : Integer;
+      B : Integer;
+      C1 in Red => C : Integer;
+      not (C1 in Red) and C1 in Blue | Green => D : Integer;
+      not (C1 in Blue | Green and C1 in Red) => E : Integer;
+      not (C1 in Blue | Green and C1 in Red) and C2 in Green => F : Integer;
+      not (C1 in Blue | Green and C1 in Red) and C2 in Green => G : Integer;
+      not (C2 in Green and C1 in Blue | Green
+        and C1 in Red) and C2 in Yellow .. Orange => I : Integer
+      end record;
+
+<SubtypeDecl ["My_Rec_Variant_Constrained_Named_Reverse"] a.ads:175:4-176:46>
+  type My_Rec_Variant_Constrained_Named_Reverse is
+    record (C1 : (Red, Blue, Green, Black, White, Yellow, Orange) => 
+          Red, C2 : (Red, Blue, Green, Black, White, Yellow, Orange) => 
+          Blue)
+      A : Integer;
+      B : Integer;
+      C1 in Red => C : Integer;
+      not (C1 in Red) and C1 in Blue | Green => D : Integer;
+      not (C1 in Blue | Green and C1 in Red) => E : Integer;
+      not (C1 in Blue | Green and C1 in Red) and C2 in Green => F : Integer;
+      not (C1 in Blue | Green and C1 in Red) and C2 in Green => G : Integer;
+      not (C2 in Green and C1 in Blue | Green
+        and C1 in Red) and C2 in Yellow .. Orange => I : Integer
+      end record;
+
+<SubtypeDecl ["My_Rec_Variant_Constrained_Positional"] a.ads:177:4-177:80>
+  type My_Rec_Variant_Constrained_Positional is
+    record (C1 : (Red, Blue, Green, Black, White, Yellow, Orange) => 
+          Red, C2 : (Red, Blue, Green, Black, White, Yellow, Orange) => 
+          Blue)
+      A : Integer;
+      B : Integer;
+      C1 in Red => C : Integer;
+      not (C1 in Red) and C1 in Blue | Green => D : Integer;
+      not (C1 in Blue | Green and C1 in Red) => E : Integer;
+      not (C1 in Blue | Green and C1 in Red) and C2 in Green => F : Integer;
+      not (C1 in Blue | Green and C1 in Red) and C2 in Green => G : Integer;
+      not (C2 in Green and C1 in Blue | Green
+        and C1 in Red) and C2 in Yellow .. Orange => I : Integer
+      end record;
+

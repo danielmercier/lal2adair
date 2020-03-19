@@ -151,4 +151,28 @@ package A is
    --  with range_constraint attribute_reference
    subtype My_Ordinary_Subtype_Digits_Range is My_Ordinary_Fixed delta 0.4
       range My_Ordinary_Subtype_Digits_Dot'Range;
+
+   --  Ada RM 3.2.2 (7) composite constraint
+
+   --  Ada RM 3.6.1 (2) index constraint
+   --  discrete_subtype_indication with no range
+   subtype Small_Positive is Positive range 1 .. 10;
+   subtype Constrained_Array_Subtype is Unconstrained_Array (Small_Positive);
+   --  discrete_subtype_indication with range
+   subtype Constrained_Array_Subtype_Range is
+      Unconstrained_Array (Positive range 1 .. 10);
+   --  Ada RM 3.5 range
+   --  range_attribute_reference
+   subtype Constrained_Array_Attribute_Range is
+      Unconstrained_Array (Small_Positive'Range);
+   --  simple_expression .. simple_expression
+   subtype Constrained_Array_Subtype_Dot_Range is
+      Unconstrained_Array (1 .. 10);
+
+   --  Ada RM 3.7.1 (2) discriminant constraint
+   subtype My_Rec_Variant_Constrained_Named is
+      My_Rec_Variant (C1 => Red, C2 => Blue);
+   subtype My_Rec_Variant_Constrained_Named_Reverse is
+      My_Rec_Variant (C2 => Blue, C1 => Red);
+   subtype My_Rec_Variant_Constrained_Positional is My_Rec_Variant (Red, Blue);
 end A;
