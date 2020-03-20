@@ -1357,27 +1357,7 @@ and translate_type_decl_impl ctx base_type_decl =
   {typ with aspects= merge_aspects typ.aspects aspects}
 
 
-and translate_discriminant_constraint record discriminant_constraint =
-  let compute_pos i pos_map {IR.Typ.discr_name} =
-    IR.Name.Map.add discr_name i pos_map
-  in
-  (* First compute the position of each discriminant to sort them *)
-  let pos_map =
-    List.foldi ~f:compute_pos record.IR.Typ.discriminants
-      ~init:IR.Name.Map.empty
-  in
-  (* Compare the position of the discriminants using pos_map *)
-  let compare (name_a, _) (name_b, _) =
-    match
-      (IR.Name.Map.find_opt name_a pos_map, IR.Name.Map.find_opt name_b pos_map)
-    with
-    | Some pos1, Some pos2 ->
-        Pervasives.compare pos1 pos2
-    | None, Some _ ->
-        Utils.lal_error "Cannot find name for %a" IR.Name.pp name_a
-    | _, None ->
-        Utils.lal_error "Cannot find name for %a" IR.Name.pp name_b
-  in
+and translate_discriminant_constraint discriminant_constraint =
   let discr_from_constraints =
     try
       AssocList.p_zip_with_params
@@ -1408,7 +1388,7 @@ and translate_discriminant_constraint record discriminant_constraint =
   in
   (* Sort the discriminants *)
   IR.Typ.DiscrConstrained
-    (List.map ~f:from_param_actual discr_from_constraints |> List.sort ~compare)
+    (List.map ~f:from_param_actual discr_from_constraints)
 
 
 and translate_constraint designated_type constr =
@@ -1419,21 +1399,31 @@ and translate_constraint designated_type constr =
        discriminant constraint. Some constraints on array can appear as
        DiscriminantConstraint *)
     match designated_type.IR.Typ.desc with
-    | Record (record, _) -> (
+    | Record (record_name, _) | Access (Object {desc= Record (record_name, _)})
+      -> (
       (* In this case index constraint should not happen *)
       match composite_constraint with
-      | #DiscriminantConstraint.t as discriminant_constraint ->
-          let desc =
-            IR.Typ.Record
-              ( record
-              , translate_discriminant_constraint record
-                  discriminant_constraint )
+      | #DiscriminantConstraint.t as discriminant_constraint -> (
+          let discr_constraint =
+            translate_discriminant_constraint discriminant_constraint
           in
-          {designated_type with desc}
+          let desc = IR.Typ.Record (record_name, discr_constraint) in
+          match designated_type.desc with
+          | Record _ ->
+              {designated_type with desc}
+          | Access (Object root_type) ->
+              (* An access here is possible, the constraint is applied to
+                 the underlying record, see Ada RM 3.7.1 (7/3) *)
+              { designated_type with
+                desc= IR.Typ.Access (Object {root_type with desc}) }
+          | _ ->
+              (* Fitered above *)
+              assert false )
       | _ ->
           Utils.legality_error "Expecting an array type for constraint %a"
             Utils.pp_node constr )
-    | Array (elt_typ, _) ->
+    | Array (array_name, _) | Access (Object {desc= Array (array_name, _)})
+      -> (
         (* In this case we can either have a discriminant constraint, or an
            index constraint. This is because we cannot differentiate both
            grammatically *)
@@ -1469,11 +1459,21 @@ and translate_constraint designated_type constr =
         in
         let desc =
           IR.Typ.Array
-            ( elt_typ
+            ( array_name
             , ( IndexConstrained
               , List.map ~f:translate_index_constraint constraint_list ) )
         in
-        {designated_type with desc}
+        match designated_type.desc with
+        | Array _ ->
+            {designated_type with desc}
+        | Access (Object root_type) ->
+            (* An access here is possible, the constraint is applied to
+               the underlying array, see Ada RM 3.6.1 (5) *)
+            { designated_type with
+              desc= IR.Typ.Access (Object {root_type with desc}) }
+        | _ ->
+            (* This case is filtered above *)
+            assert false )
     | _ ->
         Utils.legality_error "Expecting a composite type for constraint %a"
           Utils.pp_node constr )
@@ -1507,13 +1507,7 @@ and translate_subtype_indication ctx subtype_indication =
   | Some typ ->
       typ
   | None ->
-      let result =
-        let new_ctx =
-          (* Mark that we are translating this type *)
-          {ctx with translating= IR.Name.Set.add name ctx.translating}
-        in
-        translate_subtype_indication_impl new_ctx subtype_indication
-      in
+      let result = translate_subtype_indication_impl ctx subtype_indication in
       IR.Typ.add ctx.tenv name result ;
       result
 
@@ -1549,12 +1543,12 @@ and translate_type_def ctx type_decl type_def =
       translate_real_type_def type_decl real_type_def
   | `AnonymousTypeAccessDef {f_type_decl} ->
       (* anonymous access *)
-      let root_typ = translate_access_root_type_decl ctx f_type_decl in
-      mk type_decl (Access (Object root_typ))
+      let root_typ = translate_anon_access_root_type_decl ctx f_type_decl in
+      mk type_decl (Access (Anonymous root_typ))
   | `TypeAccessDef {f_subtype_indication} ->
       (* access definition *)
       let root_typ =
-        translate_access_root_type_expr ctx f_subtype_indication
+        translate_type_expr ctx (f_subtype_indication :> TypeExpr.t)
       in
       mk type_decl (Access (Object root_typ))
   | `DerivedTypeDef {f_has_with_private= `WithPrivateAbsent _} as
@@ -1566,8 +1560,9 @@ and translate_type_def ctx type_decl type_def =
   | #AccessToSubpDef.t as access_to_subp_def ->
       translate_access_to_subp_def ctx type_decl access_to_subp_def
   | #InterfaceTypeDef.t ->
-      mk type_decl
-        (IR.Typ.Record ({discriminants= []; fields= []}, DiscrConstrained []))
+      let record_name = Utils.decl_defining_name type_decl in
+      IR.Typ.add_record_typ ctx.tenv record_name {discriminants= []; fields= []} ;
+      mk type_decl (IR.Typ.Record (record_name, DiscrConstrained []))
   | #FormalDiscreteTypeDef.t as type_def ->
       (* This is a type for generics. Since we expand generics we should
          never resolve a type to this *)
@@ -1837,12 +1832,21 @@ and translate_fields ctx base_record_def =
 
 and translate_record_type_def ctx type_decl record_type_def =
   (* record definition *)
-  let discriminants = translate_discriminants ctx type_decl in
-  let base_record_def = RecordTypeDef.f_record_def record_type_def in
-  let fields = translate_fields ctx base_record_def in
-  let record = {IR.Typ.discriminants; fields} in
+  let record_name = Utils.decl_defining_name type_decl in
+  ( if IR.Name.Set.mem record_name ctx.translating then
+    (* This type is being translated, stop the recursion *)
+    ()
+  else
+    let ctx =
+      {ctx with translating= IR.Name.Set.add record_name ctx.translating}
+    in
+    let discriminants = translate_discriminants ctx type_decl in
+    let base_record_def = RecordTypeDef.f_record_def record_type_def in
+    let fields = translate_fields ctx base_record_def in
+    IR.Typ.add_record_typ ctx.tenv record_name {IR.Typ.discriminants; fields}
+  ) ;
   let record_constraint = translate_type_discriminant type_decl in
-  mk type_decl (Record (record, record_constraint))
+  mk type_decl (Record (record_name, record_constraint))
 
 
 and translate_real_type_def type_decl _real_type_def =
@@ -1850,19 +1854,20 @@ and translate_real_type_def type_decl _real_type_def =
   mk type_decl (Real Float)
 
 
-and translate_access_root_type_decl ctx root_type_decl =
+and translate_anon_access_root_type_decl ctx root_type_decl =
   let name = Utils.decl_defining_name root_type_decl in
-  if IR.Name.Set.mem name ctx.translating then
+  ( if IR.Name.Set.mem name ctx.translating then
     (* This type is being translated, stop the recursion *)
     ()
   else
+    let ctx = {ctx with translating= IR.Name.Set.add name ctx.translating} in
     (* Be sure to translate the root type to memoize it. We do not care about
        the result *)
-    ignore (translate_type_decl ctx root_type_decl : IR.Typ.t) ;
+    ignore (translate_type_decl ctx root_type_decl : IR.Typ.t) ) ;
   name
 
 
-and translate_access_root_type_expr ctx root_type_expr =
+and translate_anon_access_root_type_expr ctx root_type_expr =
   let name = IR.Name.from_subtype_indication root_type_expr in
   if IR.Name.Set.mem name ctx.translating then
     (* This type is being translated, stop the recursion *)
@@ -1876,6 +1881,7 @@ and translate_access_root_type_expr ctx root_type_expr =
 
 and translate_derived_type_def ctx type_decl derived_type_def =
   (* type Derived is new SomeType *)
+  let record_name = Utils.decl_defining_name type_decl in
   let subtype_indication =
     DerivedTypeDef.f_subtype_indication derived_type_def
   in
@@ -1883,36 +1889,43 @@ and translate_derived_type_def ctx type_decl derived_type_def =
     from_parent type_decl (translate_subtype_indication ctx subtype_indication)
   in
   match derived_from_type.desc with
-  | Record (derived_record, _) ->
+  | Record (derived_record_name, _) ->
       (* TODO the derived discriminant constraint is not taken into account.
          if there is one, it should bind the discriminants of this type, to
          the discriminants of the derived type *)
-      let discriminants =
-        match translate_discriminants ctx type_decl with
-        | [] ->
-            (* No discriminants, they are inherited from the parent, see
-               Ada RM 3.4 (11) *)
-            derived_record.discriminants
-        | discriminants ->
-            (* Discriminants are defined by this type. *)
-            discriminants
-      in
-      let fields =
-        let record_extension =
-          DerivedTypeDef.f_record_extension derived_type_def
+      ( if IR.Name.Set.mem record_name ctx.translating then ()
+      else
+        let ctx =
+          {ctx with translating= IR.Name.Set.add record_name ctx.translating}
         in
-        (* If the type we derive from is a record, check for any record
+        let derived_record = IR.Typ.record_type ctx.tenv derived_record_name in
+        let discriminants =
+          match translate_discriminants ctx type_decl with
+          | [] ->
+              (* No discriminants, they are inherited from the parent, see
+               Ada RM 3.4 (11) *)
+              derived_record.discriminants
+          | discriminants ->
+              (* Discriminants are defined by this type. *)
+              discriminants
+        in
+        let fields =
+          let record_extension =
+            DerivedTypeDef.f_record_extension derived_type_def
+          in
+          (* If the type we derive from is a record, check for any record
            extension. *)
-        match record_extension with
-        | Some record_def ->
-            let fields = translate_fields ctx record_def in
-            fields @ derived_record.fields
-        | None ->
-            derived_record.fields
-      in
-      let record = {IR.Typ.discriminants; fields} in
+          match record_extension with
+          | Some record_def ->
+              let fields = translate_fields ctx record_def in
+              fields @ derived_record.fields
+          | None ->
+              derived_record.fields
+        in
+        let record = {IR.Typ.discriminants; fields} in
+        IR.Typ.add_record_typ ctx.tenv record_name record ) ;
       let record_constraint = translate_type_discriminant type_decl in
-      {derived_from_type with desc= Record (record, record_constraint)}
+      {derived_from_type with desc= Record (record_name, record_constraint)}
   | _ ->
       derived_from_type
 
@@ -1936,7 +1949,6 @@ and translate_index_constraint = function
 and translate_array_type_def ctx type_decl =
   function%nolazy
   | `ArrayTypeDef {f_indices; f_component_type= `ComponentDef {f_type_expr}} ->
-      let elt_typ = translate_type_expr ctx (f_type_expr :> TypeExpr.t) in
       let index_constraint =
         match%nolazy f_indices with
         | `ConstrainedArrayIndices {f_list= `ConstraintList {list= constraints}}
@@ -1959,7 +1971,15 @@ and translate_array_type_def ctx type_decl =
             let indices = List.map ~f:translate_to_discrete list in
             (IR.Typ.IndexUnconstrained, indices)
       in
-      mk type_decl (Array (elt_typ, index_constraint))
+      let array_name = Utils.decl_defining_name type_decl in
+      ( if IR.Name.Set.mem array_name ctx.translating then ()
+      else
+        let ctx =
+          {ctx with translating= IR.Name.Set.add array_name ctx.translating}
+        in
+        let elt_typ = translate_type_expr ctx (f_type_expr :> TypeExpr.t) in
+        IR.Typ.add_elt_typ ctx.tenv array_name elt_typ ) ;
+      mk type_decl (Array (array_name, index_constraint))
 
 
 and translate_access_to_subp_def ctx type_decl access_to_subp_def =
@@ -2013,15 +2033,11 @@ and translate_type_decl ctx base_type_decl =
       typ
   | None ->
       let result =
-        let new_ctx =
-          (* Mark that we are translating this type *)
-          {ctx with translating= IR.Name.Set.add name ctx.translating}
-        in
-        match translate_custom_type new_ctx full_decl with
+        match translate_custom_type ctx full_decl with
         | Some typ ->
             typ
         | None ->
-            translate_type_decl_impl new_ctx full_decl
+            translate_type_decl_impl ctx full_decl
       in
       IR.Typ.add ctx.tenv name result ;
       result

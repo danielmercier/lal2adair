@@ -172,7 +172,18 @@ package A is
    --  Ada RM 3.7.1 (2) discriminant constraint
    subtype My_Rec_Variant_Constrained_Named is
       My_Rec_Variant (C1 => Red, C2 => Blue);
+   -- TODO: waiting fix T320-015
    subtype My_Rec_Variant_Constrained_Named_Reverse is
       My_Rec_Variant (C2 => Blue, C1 => Red);
    subtype My_Rec_Variant_Constrained_Positional is My_Rec_Variant (Red, Blue);
+
+   --  Ada RM 3.6.1 (5) constraint on an access type
+   type Unconstrained_Array_Ptr is access Unconstrained_Array;
+   subtype Unconstrained_Array_Ptr_Constrained is
+      Unconstrained_Array_Ptr (1 .. 10);
+
+   --  Ada RM 3.7.1 (7/3) constraint on an access type
+   -- TODO: waiting fix in T320-016
+   type My_Rec_Variant_Ptr is access My_Rec_Variant;
+   subtype My_Rec_Variant_Ptr_Constrained is My_Rec_Variant_Ptr (Red, Blue);
 end A;

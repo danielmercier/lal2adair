@@ -19,6 +19,12 @@ module rec Typ : sig
 
   type orig_node = [Libadalang.BaseTypeDecl.t | Libadalang.TypeExpr.t]
 
+  (* TODO: tenv, array_name and record_name should both be opaque types.
+     We cannot do it until we remove the 'include Typ' *)
+  type array_name = Name.t
+
+  type record_name = Name.t
+
   type t =
     { desc: desc
     ; aspects: aspect list
@@ -36,7 +42,10 @@ module rec Typ : sig
     | UniversalInteger
     | Name of Name.t
 
-  and tenv = {typ_tbl: t Name.Hashtbl.t}
+  and tenv =
+    { typ_tbl: t Name.Hashtbl.t
+    ; elt_typ: t Name.Hashtbl.t
+    ; record_typ: record Name.Hashtbl.t }
 
   and desc =
     (* Discrete and Real are Scalar types (Ada RM 3.5) *)
@@ -44,8 +53,8 @@ module rec Typ : sig
     | Real of real_type
     | Access of access_type
     (* Array types (Ada RM 3.6) *)
-    | Array of t * index_constraint
-    | Record of record * discriminant_constraint
+    | Array of array_name * index_constraint
+    | Record of record_name * discriminant_constraint
 
   and discrete_type = discrete_type_desc * range_constraint option
 
@@ -111,7 +120,8 @@ module rec Typ : sig
       instead *)
   and access_type =
     (* access to object (Ada RM 3.10 (3)) *)
-    | Object of Name.t
+    | Object of t
+    | Anonymous of Name.t
     (* access to subprogram (Ada RM 3.10 (5)) *)
     | Subprogram of subprogram_typ
 
@@ -119,10 +129,18 @@ module rec Typ : sig
 
   val find_opt : tenv -> Name.t -> t option
 
+  val elt_type : tenv -> array_name -> t
+
+  val record_type : tenv -> record_name -> record
+
   val add : tenv -> Name.t -> t -> unit
 
+  val add_elt_typ : tenv -> array_name -> t -> unit
+
+  val add_record_typ : tenv -> record_name -> record -> unit
+
   (* Pretty print a full description of the type *)
-  val pp_full : Format.formatter -> t -> unit
+  val pp_full : tenv -> Format.formatter -> t -> unit
 
   (* Pretty print the name of the type *)
   val pp : Format.formatter -> t -> unit
@@ -131,11 +149,27 @@ module rec Typ : sig
 end = struct
   include Typ
 
-  let mk_empty_tenv () = {typ_tbl= Name.Hashtbl.create 256}
+  let mk_empty_tenv () =
+    { typ_tbl= Name.Hashtbl.create 256
+    ; elt_typ= Name.Hashtbl.create 256
+    ; record_typ= Name.Hashtbl.create 256 }
+
 
   let find_opt tenv name = Name.Hashtbl.find_opt tenv.typ_tbl name
 
+  let elt_type tenv array_name = Name.Hashtbl.find tenv.elt_typ array_name
+
+  let record_type tenv record_name =
+    Name.Hashtbl.find tenv.record_typ record_name
+
+
   let add tenv name = Name.Hashtbl.add tenv.typ_tbl name
+
+  let add_elt_typ tenv array_name = Name.Hashtbl.add tenv.elt_typ array_name
+
+  let add_record_typ tenv record_name =
+    Name.Hashtbl.add tenv.record_typ record_name
+
 
   let pp_enum_typ fmt = function
     | Character c ->
@@ -172,13 +206,15 @@ end = struct
 
 
   let pp_access_type fmt = function
-    | Object name ->
+    | Object root_type ->
+        Format.fprintf fmt "access %a" pp root_type
+    | Anonymous name ->
         Format.fprintf fmt "access %a" Name.pp name
     | Subprogram _ ->
         Format.fprintf fmt "access subprogram"
 
 
-  let rec pp_full fmt typ =
+  let rec pp_full tenv fmt typ =
     let pp_desc fmt desc =
       (* In that case, write the description of the type *)
       match desc with
@@ -188,9 +224,11 @@ end = struct
           pp_real_type fmt real_typ
       | Access access_type ->
           pp_access_type fmt access_type
-      | Array (elt_typ, index_constraint) ->
+      | Array (array_name, index_constraint) ->
+          let elt_typ = elt_type tenv array_name in
           pp_array_type fmt (elt_typ, index_constraint)
-      | Record (record, discriminant_constraint) ->
+      | Record (record_name, discriminant_constraint) ->
+          let record = record_type tenv record_name in
           pp_record_type fmt (record, discriminant_constraint)
     in
     Format.fprintf fmt "@[<2>type %a is@ %a;@]" pp typ pp_desc typ.desc

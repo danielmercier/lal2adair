@@ -193,11 +193,11 @@
         and C1 in Red) and C2 in Yellow .. Orange => I : Integer
       end record;
 
-<SubtypeDecl ["My_Rec_Variant_Constrained_Named_Reverse"] a.ads:175:4-176:46>
+<SubtypeDecl ["My_Rec_Variant_Constrained_Named_Reverse"] a.ads:176:4-177:46>
   type My_Rec_Variant_Constrained_Named_Reverse is
     record (C1 : (Red, Blue, Green, Black, White, Yellow, Orange) => 
-          Red, C2 : (Red, Blue, Green, Black, White, Yellow, Orange) => 
-          Blue)
+          Blue, C2 : (Red, Blue, Green, Black, White, Yellow, Orange) => 
+          Red)
       A : Integer;
       B : Integer;
       C1 in Red => C : Integer;
@@ -209,7 +209,7 @@
         and C1 in Red) and C2 in Yellow .. Orange => I : Integer
       end record;
 
-<SubtypeDecl ["My_Rec_Variant_Constrained_Positional"] a.ads:177:4-177:80>
+<SubtypeDecl ["My_Rec_Variant_Constrained_Positional"] a.ads:178:4-178:80>
   type My_Rec_Variant_Constrained_Positional is
     record (C1 : (Red, Blue, Green, Black, White, Yellow, Orange) => 
           Red, C2 : (Red, Blue, Green, Black, White, Yellow, Orange) => 
@@ -224,4 +224,21 @@
       not (C2 in Green and C1 in Blue | Green
         and C1 in Red) and C2 in Yellow .. Orange => I : Integer
       end record;
+
+<TypeDecl ["Unconstrained_Array_Ptr"] a.ads:181:4-181:63>
+  type Unconstrained_Array_Ptr is access Unconstrained_Array;
+
+<SubtypeDecl ["Unconstrained_Array_Ptr_Constrained"] a.ads:182:4-183:41>
+  access type Unconstrained_Array is
+           array (signed (-9223372036854775808, 9223372036854775807)
+                    range 1 .. 10)
+           of Integer;
+
+<TypeDecl ["My_Rec_Variant_Ptr"] a.ads:187:4-187:53>
+  type My_Rec_Variant_Ptr is access My_Rec_Variant;
+
+<SubtypeDecl ["My_Rec_Variant_Ptr_Constrained"] a.ads:188:4-188:77>
+  access type My_Rec_Variant is
+           recordError translating <SubtypeDecl ["My_Rec_Variant_Ptr_Constrained"] a.ads:188:4-188:77>:
+                   "Assert_failure src/IR/IR.ml:311:63"
 
